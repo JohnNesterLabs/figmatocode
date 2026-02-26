@@ -71,10 +71,35 @@ const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
 
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            GitHub
+            GitHub Access Token
           </label>
-          <button className="w-full py-2 text-xs font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 transition-colors">
-            Connect GitHub →
+          <p className="text-[10px] text-muted-foreground">
+            <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Create token</a> with <code className="font-mono bg-muted px-1 rounded">repo</code> scope
+          </p>
+          <div className="relative">
+            <input
+              type={showGhToken ? "text" : "password"}
+              value={ghToken}
+              onChange={(e) => setGhToken(e.target.value)}
+              placeholder="ghp_..."
+              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary pr-9"
+            />
+            <button
+              onClick={() => setShowGhToken(!showGhToken)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showGhToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.setItem("github_token", ghToken);
+              setGhSaved(true);
+              setTimeout(() => setGhSaved(false), 2000);
+            }}
+            className="w-full py-1.5 text-xs font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 transition-colors flex items-center justify-center gap-1.5"
+          >
+            {ghSaved ? <><CheckIcon className="w-3 h-3 text-success" /> Saved</> : <><GitBranch className="w-3 h-3" /> Save GitHub Token</>}
           </button>
         </div>
       </div>
