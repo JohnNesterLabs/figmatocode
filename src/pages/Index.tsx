@@ -402,6 +402,12 @@ const Index = () => {
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+      <PushToGitHubDialog
+        open={githubDialogOpen}
+        onOpenChange={setGithubDialogOpen}
+        files={files}
+        componentName={componentName || "Component"}
+      />
     </div>
   );
 };
