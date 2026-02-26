@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, Settings, User, ChevronLeft } from "lucide-react";
+import { Eye, EyeOff, Settings, User, ChevronLeft, GitBranch, Check as CheckIcon } from "lucide-react";
 
 interface SettingsSidebarProps {
   open: boolean;
