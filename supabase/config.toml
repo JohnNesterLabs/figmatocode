@@ -1,0 +1,4 @@
+project_id = "hctufiqoarnjbggsyxaf"
+
+[functions.github-push]
+verify_jwt = false

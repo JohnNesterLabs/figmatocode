@@ -5,6 +5,7 @@ import SettingsSidebar from "@/components/SettingsSidebar";
 import ImportPanel from "@/components/ImportPanel";
 import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
+import PushToGitHubDialog from "@/components/PushToGitHubDialog";
 import { ConversionStep } from "@/components/ConversionProgress";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
@@ -314,6 +315,7 @@ const Index = () => {
   const [componentName, setComponentName] = useState<string | null>(null);
   const [files, setFiles] = useState<CodeFile[]>([]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [githubDialogOpen, setGithubDialogOpen] = useState(false);
 
   const simulateConversion = useCallback(
     async (url: string, frameworks: string[]) => {
@@ -388,7 +390,10 @@ const Index = () => {
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={45} minSize={30}>
-            <CodePanel files={files} />
+            <CodePanel
+              files={files}
+              onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+            />
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={30} minSize={20}>
@@ -396,6 +401,12 @@ const Index = () => {
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+      <PushToGitHubDialog
+        open={githubDialogOpen}
+        onOpenChange={setGithubDialogOpen}
+        files={files}
+        componentName={componentName || "Component"}
+      />
     </div>
   );
 };

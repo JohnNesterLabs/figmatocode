@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Download, Copy, Check, FileCode } from "lucide-react";
+import { Download, Copy, Check, FileCode, GitBranch } from "lucide-react";
 import Editor from "@monaco-editor/react";
 
 export interface CodeFile {
@@ -10,9 +10,10 @@ export interface CodeFile {
 
 interface CodePanelProps {
   files: CodeFile[];
+  onPushToGitHub?: () => void;
 }
 
-const CodePanel = ({ files }: CodePanelProps) => {
+const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   const [activeTab, setActiveTab] = useState(0);
   const [copied, setCopied] = useState(false);
   const [editorContents, setEditorContents] = useState<Record<string, string>>({});
@@ -58,6 +59,15 @@ const CodePanel = ({ files }: CodePanelProps) => {
             >
               <Download className="w-4 h-4" />
             </button>
+            {onPushToGitHub && (
+              <button
+                onClick={onPushToGitHub}
+                className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
+                title="Push to GitHub"
+              >
+                <GitBranch className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
       </div>
