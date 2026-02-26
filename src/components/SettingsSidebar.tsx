@@ -8,6 +8,9 @@ interface SettingsSidebarProps {
 
 const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
   const [token, setToken] = useState("");
+  const [ghToken, setGhToken] = useState("");
+  const [showGhToken, setShowGhToken] = useState(false);
+  const [ghSaved, setGhSaved] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [saved, setSaved] = useState(false);
 
