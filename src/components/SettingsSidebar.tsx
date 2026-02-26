@@ -17,6 +17,8 @@ const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
   useEffect(() => {
     const stored = localStorage.getItem("figma_token");
     if (stored) setToken(stored);
+    const ghStored = localStorage.getItem("github_token");
+    if (ghStored) setGhToken(ghStored);
   }, []);
 
   const handleSave = () => {
