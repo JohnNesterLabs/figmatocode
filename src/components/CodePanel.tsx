@@ -10,6 +10,7 @@ export interface CodeFile {
 
 interface CodePanelProps {
   files: CodeFile[];
+  onPushToGitHub?: () => void;
 }
 
 const CodePanel = ({ files }: CodePanelProps) => {
