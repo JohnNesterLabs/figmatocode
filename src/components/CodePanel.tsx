@@ -59,6 +59,15 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
             >
               <Download className="w-4 h-4" />
             </button>
+            {onPushToGitHub && (
+              <button
+                onClick={onPushToGitHub}
+                className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
+                title="Push to GitHub"
+              >
+                <GitBranch className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
       </div>
