@@ -5,6 +5,7 @@ import SettingsSidebar from "@/components/SettingsSidebar";
 import ImportPanel from "@/components/ImportPanel";
 import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
+import PushToGitHubDialog from "@/components/PushToGitHubDialog";
 import { ConversionStep } from "@/components/ConversionProgress";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
