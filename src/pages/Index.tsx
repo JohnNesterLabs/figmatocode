@@ -390,7 +390,11 @@ const Index = () => {
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={45} minSize={30}>
-            <CodePanel files={files} />
+            <CodePanel
+              files={files}
+              onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+            />
+          </ResizablePanel>
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={30} minSize={20}>
