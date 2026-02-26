@@ -13,7 +13,7 @@ interface CodePanelProps {
   onPushToGitHub?: () => void;
 }
 
-const CodePanel = ({ files }: CodePanelProps) => {
+const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   const [activeTab, setActiveTab] = useState(0);
   const [copied, setCopied] = useState(false);
   const [editorContents, setEditorContents] = useState<Record<string, string>>({});
