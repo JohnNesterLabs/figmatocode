@@ -395,7 +395,6 @@ const Index = () => {
               onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
             />
           </ResizablePanel>
-          </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={30} minSize={20}>
             <PreviewPanel html={previewHtml} />
