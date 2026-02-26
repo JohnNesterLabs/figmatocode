@@ -315,6 +315,7 @@ const Index = () => {
   const [componentName, setComponentName] = useState<string | null>(null);
   const [files, setFiles] = useState<CodeFile[]>([]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [githubDialogOpen, setGithubDialogOpen] = useState(false);
 
   const simulateConversion = useCallback(
     async (url: string, frameworks: string[]) => {
