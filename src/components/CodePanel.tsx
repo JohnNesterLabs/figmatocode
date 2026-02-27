@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   File,
+  X,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 
@@ -94,10 +95,15 @@ const getParentFolders = (path: string): string[] => {
 };
 
 const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [editorContents, setEditorContents] = useState<Record<string, string>>({});
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const fileByPath = useMemo(
+    () => Object.fromEntries(files.map((file) => [file.name, file])),
+    [files]
+  );
 
   useEffect(() => {
     const initial: Record<string, string> = {};
@@ -105,7 +111,17 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
       initial[f.name] = f.content;
     });
     setEditorContents(initial);
-    setActiveTab(0);
+
+    setOpenFiles((prev) => {
+      const next = prev.filter((path) => Boolean(fileByPath[path]));
+      if (next.length > 0) return next;
+      return files[0] ? [files[0].name] : [];
+    });
+
+    setActiveFilePath((prev) => {
+      if (prev && fileByPath[prev]) return prev;
+      return files[0]?.name ?? null;
+    });
 
     const nextExpanded: Record<string, boolean> = {};
     files.forEach((file) => {
@@ -114,10 +130,10 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
       });
     });
     setExpandedFolders(nextExpanded);
-  }, [files]);
+  }, [files, fileByPath]);
 
   const handleCopy = () => {
-    const file = files[activeTab];
+    const file = activeFilePath ? fileByPath[activeFilePath] : undefined;
     if (!file) return;
     navigator.clipboard.writeText(editorContents[file.name] || file.content);
     setCopied(true);
@@ -125,7 +141,7 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   };
 
   const handleDownload = () => {
-    const file = files[activeTab];
+    const file = activeFilePath ? fileByPath[activeFilePath] : undefined;
     if (!file) return;
     const content = editorContents[file.name] || file.content;
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -139,7 +155,7 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
     URL.revokeObjectURL(url);
   };
 
-  const currentFile = files[activeTab];
+  const currentFile = activeFilePath ? fileByPath[activeFilePath] : undefined;
   const fileTree = useMemo(() => buildFileTree(files), [files]);
 
   const toggleFolder = (path: string) => {
@@ -147,11 +163,25 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   };
 
   const openFile = (path: string) => {
-    const fileIndex = files.findIndex((file) => file.name === path);
-    if (fileIndex === -1) return;
-    setActiveTab(fileIndex);
+    if (!fileByPath[path]) return;
+    setOpenFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveFilePath(path);
     getParentFolders(path).forEach((folderPath) => {
       setExpandedFolders((prev) => ({ ...prev, [folderPath]: true }));
+    });
+  };
+
+  const closeFile = (path: string) => {
+    setOpenFiles((prev) => {
+      const index = prev.indexOf(path);
+      if (index === -1) return prev;
+      const next = prev.filter((openPath) => openPath !== path);
+      setActiveFilePath((current) => {
+        if (current !== path) return current;
+        if (next.length === 0) return null;
+        return next[Math.max(0, index - 1)] ?? next[0];
+      });
+      return next;
     });
   };
 
@@ -184,8 +214,7 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
         );
       }
 
-      const fileIndex = files.findIndex((file) => file.name === node.path);
-      const isActive = fileIndex === activeTab;
+      const isActive = activeFilePath === node.path;
       return (
         <button
           key={node.path}
@@ -240,7 +269,7 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {currentFile ? (
+        {files.length > 0 ? (
           <div className="h-full flex">
             <aside className="w-56 border-r border-border bg-surface/20 overflow-y-auto">
               <div className="px-3 py-2 border-b border-border">
@@ -250,33 +279,72 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
               </div>
               <div className="py-1">{renderTree(fileTree)}</div>
             </aside>
-            <div className="flex-1 overflow-hidden">
-              <Editor
-                height="100%"
-                language={currentFile.language}
-                value={editorContents[currentFile.name] || currentFile.content}
-                onChange={(val) => {
-                  if (val !== undefined && currentFile) {
-                    setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
-                  }
-                }}
-                theme="vs-dark"
-                options={{
-                  fontSize: 13,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  padding: { top: 16 },
-                  lineNumbers: "on",
-                  renderLineHighlight: "none",
-                  overviewRulerBorder: false,
-                  hideCursorInOverviewRuler: true,
-                  scrollbar: {
-                    verticalScrollbarSize: 6,
-                    horizontalScrollbarSize: 6,
-                  },
-                }}
-              />
+            <div className="flex-1 overflow-hidden flex flex-col">
+              {openFiles.length > 0 && (
+                <div className="h-9 border-b border-border flex items-center overflow-x-auto">
+                  {openFiles.map((path) => {
+                    const isActive = path === activeFilePath;
+                    const tabName = path.split("/").at(-1) || path;
+                    return (
+                      <button
+                        key={path}
+                        onClick={() => setActiveFilePath(path)}
+                        title={path}
+                        className={`group h-full px-3 flex items-center gap-2 text-xs border-r border-border whitespace-nowrap ${
+                          isActive
+                            ? "bg-primary/10 text-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
+                        }`}
+                      >
+                        <span className="max-w-40 truncate">{tabName}</span>
+                        <span
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            closeFile(path);
+                          }}
+                          className="p-0.5 rounded hover:bg-black/20"
+                        >
+                          <X className="w-3 h-3" />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex-1 overflow-hidden">
+                {currentFile ? (
+                  <Editor
+                    height="100%"
+                    language={currentFile.language}
+                    value={editorContents[currentFile.name] || currentFile.content}
+                    onChange={(val) => {
+                      if (val !== undefined && currentFile) {
+                        setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
+                      }
+                    }}
+                    theme="vs-dark"
+                    options={{
+                      fontSize: 13,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      padding: { top: 16 },
+                      lineNumbers: "on",
+                      renderLineHighlight: "none",
+                      overviewRulerBorder: false,
+                      hideCursorInOverviewRuler: true,
+                      scrollbar: {
+                        verticalScrollbarSize: 6,
+                        horizontalScrollbarSize: 6,
+                      },
+                    }}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-center">
+                    <p className="text-sm text-muted-foreground">Open a file from Explorer</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ) : (
