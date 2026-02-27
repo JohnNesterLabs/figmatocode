@@ -1,5 +1,16 @@
-import { useState, useEffect } from "react";
-import { Download, Copy, Check, FileCode, GitBranch } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import {
+  Download,
+  Copy,
+  Check,
+  FileCode,
+  GitBranch,
+  ChevronRight,
+  ChevronDown,
+  Folder,
+  FolderOpen,
+  File,
+} from "lucide-react";
 import Editor from "@monaco-editor/react";
 
 export interface CodeFile {
@@ -13,10 +24,80 @@ interface CodePanelProps {
   onPushToGitHub?: () => void;
 }
 
+interface TreeNode {
+  name: string;
+  path: string;
+  type: "file" | "folder";
+  children?: TreeNode[];
+}
+
+const sortNodes = (nodes: TreeNode[]): TreeNode[] =>
+  [...nodes].sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === "folder" ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+const buildFileTree = (files: CodeFile[]): TreeNode[] => {
+  const root: TreeNode[] = [];
+
+  files.forEach((file) => {
+    const parts = file.name.split("/").filter(Boolean);
+    let currentLevel = root;
+    let currentPath = "";
+
+    parts.forEach((part, index) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isLast = index === parts.length - 1;
+      const existing = currentLevel.find((node) => node.name === part);
+      if (existing) {
+        if (existing.type === "folder" && existing.children) {
+          currentLevel = existing.children;
+        }
+        return;
+      }
+
+      if (isLast) {
+        currentLevel.push({ name: part, path: currentPath, type: "file" });
+        return;
+      }
+
+      const folderNode: TreeNode = {
+        name: part,
+        path: currentPath,
+        type: "folder",
+        children: [],
+      };
+      currentLevel.push(folderNode);
+      currentLevel = folderNode.children!;
+    });
+  });
+
+  const sortRecursively = (nodes: TreeNode[]): TreeNode[] =>
+    sortNodes(nodes).map((node) =>
+      node.type === "folder" && node.children
+        ? { ...node, children: sortRecursively(node.children) }
+        : node
+    );
+
+  return sortRecursively(root);
+};
+
+const getParentFolders = (path: string): string[] => {
+  const parts = path.split("/").filter(Boolean);
+  const parents: string[] = [];
+  for (let i = 1; i < parts.length; i += 1) {
+    parents.push(parts.slice(0, i).join("/"));
+  }
+  return parents;
+};
+
 const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   const [activeTab, setActiveTab] = useState(0);
   const [copied, setCopied] = useState(false);
   const [editorContents, setEditorContents] = useState<Record<string, string>>({});
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const initial: Record<string, string> = {};
@@ -25,6 +106,14 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
     });
     setEditorContents(initial);
     setActiveTab(0);
+
+    const nextExpanded: Record<string, boolean> = {};
+    files.forEach((file) => {
+      getParentFolders(file.name).forEach((folderPath) => {
+        nextExpanded[folderPath] = true;
+      });
+    });
+    setExpandedFolders(nextExpanded);
   }, [files]);
 
   const handleCopy = () => {
@@ -51,6 +140,68 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   };
 
   const currentFile = files[activeTab];
+  const fileTree = useMemo(() => buildFileTree(files), [files]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  };
+
+  const openFile = (path: string) => {
+    const fileIndex = files.findIndex((file) => file.name === path);
+    if (fileIndex === -1) return;
+    setActiveTab(fileIndex);
+    getParentFolders(path).forEach((folderPath) => {
+      setExpandedFolders((prev) => ({ ...prev, [folderPath]: true }));
+    });
+  };
+
+  const renderTree = (nodes: TreeNode[], depth = 0): JSX.Element[] =>
+    nodes.map((node) => {
+      const paddingLeft = 10 + depth * 14;
+      if (node.type === "folder") {
+        const isOpen = Boolean(expandedFolders[node.path]);
+        return (
+          <div key={node.path}>
+            <button
+              onClick={() => toggleFolder(node.path)}
+              className="w-full flex items-center gap-1.5 py-1.5 pr-2 text-xs text-left text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
+              style={{ paddingLeft }}
+            >
+              {isOpen ? (
+                <ChevronDown className="w-3 h-3 shrink-0" />
+              ) : (
+                <ChevronRight className="w-3 h-3 shrink-0" />
+              )}
+              {isOpen ? (
+                <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <Folder className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span className="truncate">{node.name}</span>
+            </button>
+            {isOpen && node.children ? renderTree(node.children, depth + 1) : null}
+          </div>
+        );
+      }
+
+      const fileIndex = files.findIndex((file) => file.name === node.path);
+      const isActive = fileIndex === activeTab;
+      return (
+        <button
+          key={node.path}
+          onClick={() => openFile(node.path)}
+          className={`w-full flex items-center gap-1.5 py-1.5 pr-2 text-xs text-left transition-colors ${
+            isActive
+              ? "bg-primary/10 text-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
+          }`}
+          style={{ paddingLeft }}
+        >
+          <File className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">{node.name}</span>
+        </button>
+      );
+    });
 
   return (
     <div className="h-full flex flex-col bg-card">
@@ -88,52 +239,46 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
         )}
       </div>
 
-      {files.length > 0 && (
-        <div className="flex border-b border-border overflow-x-auto">
-          {files.map((file, i) => (
-            <button
-              key={file.name}
-              onClick={() => setActiveTab(i)}
-              className={`px-3 py-2 text-xs font-mono whitespace-nowrap border-b-2 transition-colors ${
-                i === activeTab
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {file.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="flex-1 overflow-hidden">
         {currentFile ? (
-          <Editor
-            height="100%"
-            language={currentFile.language}
-            value={editorContents[currentFile.name] || currentFile.content}
-            onChange={(val) => {
-              if (val !== undefined && currentFile) {
-                setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
-              }
-            }}
-            theme="vs-dark"
-            options={{
-              fontSize: 13,
-              fontFamily: "'JetBrains Mono', monospace",
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              padding: { top: 16 },
-              lineNumbers: "on",
-              renderLineHighlight: "none",
-              overviewRulerBorder: false,
-              hideCursorInOverviewRuler: true,
-              scrollbar: {
-                verticalScrollbarSize: 6,
-                horizontalScrollbarSize: 6,
-              },
-            }}
-          />
+          <div className="h-full flex">
+            <aside className="w-56 border-r border-border bg-surface/20 overflow-y-auto">
+              <div className="px-3 py-2 border-b border-border">
+                <p className="text-[10px] tracking-wider uppercase text-muted-foreground font-semibold">
+                  Explorer
+                </p>
+              </div>
+              <div className="py-1">{renderTree(fileTree)}</div>
+            </aside>
+            <div className="flex-1 overflow-hidden">
+              <Editor
+                height="100%"
+                language={currentFile.language}
+                value={editorContents[currentFile.name] || currentFile.content}
+                onChange={(val) => {
+                  if (val !== undefined && currentFile) {
+                    setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
+                  }
+                }}
+                theme="vs-dark"
+                options={{
+                  fontSize: 13,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  padding: { top: 16 },
+                  lineNumbers: "on",
+                  renderLineHighlight: "none",
+                  overviewRulerBorder: false,
+                  hideCursorInOverviewRuler: true,
+                  scrollbar: {
+                    verticalScrollbarSize: 6,
+                    horizontalScrollbarSize: 6,
+                  },
+                }}
+              />
+            </div>
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
