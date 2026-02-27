@@ -7,6 +7,11 @@ import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
 import PushToGitHubDialog from "@/components/PushToGitHubDialog";
 import { ConversionStep } from "@/components/ConversionProgress";
+import {
+  extractComponentNameFromUrl,
+  fetchFigmaNodeSummary,
+} from "@/lib/figma";
+import { getFigmaToken } from "@/lib/tokenStorage";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -17,8 +22,10 @@ const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "css", label: "Injecting CSS & tokens" },
 ];
 
-const generateMockCode = (name: string, frameworks: string[]): CodeFile[] => {
+const generateMockCode = (name: string, frameworks: string[], variants: string[]): CodeFile[] => {
   const files: CodeFile[] = [];
+  const primaryLabel = variants[0] || "Default";
+  const secondaryLabel = variants[1] || primaryLabel;
 
   files.push({
     name: `${name}.lite.tsx`,
@@ -38,7 +45,7 @@ export default function ${name}() {
         disabled={state.disabled}
         onClick={() => setState({ ...state, variant: "secondary" })}
       >
-        Click me
+        {state.variant === "primary" ? "${primaryLabel}" : "${secondaryLabel}"}
       </button>
     </div>
   );
@@ -63,7 +70,7 @@ export default function ${name}() {
         disabled={disabled}
         onClick={() => setVariant("secondary")}
       >
-        Click me
+        {variant === "primary" ? "${primaryLabel}" : "${secondaryLabel}"}
       </button>
     </div>
   );
@@ -223,7 +230,14 @@ export default function ${name}() {
   return files;
 };
 
-const generatePreviewHtml = (name: string): string => {
+const generatePreviewHtml = (name: string, variants: string[]): string => {
+  const cards = (variants.length ? variants : ["Default"]).slice(0, 4).map((variant, index) => {
+    return `<div class="variant-card">
+      <button class="btn btn--${index % 2 === 0 ? "primary" : "secondary"}">${variant}</button>
+      <span class="variant-label">${variant}</span>
+    </div>`;
+  });
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -286,22 +300,7 @@ const generatePreviewHtml = (name: string): string => {
 <body>
   <h3>${name} — Variant Preview</h3>
   <div class="variant-grid">
-    <div class="variant-card">
-      <button class="btn btn--primary">Primary</button>
-      <span class="variant-label">primary / default</span>
-    </div>
-    <div class="variant-card">
-      <button class="btn btn--secondary">Secondary</button>
-      <span class="variant-label">secondary / default</span>
-    </div>
-    <div class="variant-card">
-      <button class="btn btn--primary" disabled>Primary</button>
-      <span class="variant-label">primary / disabled</span>
-    </div>
-    <div class="variant-card">
-      <button class="btn btn--secondary" disabled>Secondary</button>
-      <span class="variant-label">secondary / disabled</span>
-    </div>
+    ${cards.join("")}
   </div>
 </body>
 </html>`;
@@ -317,9 +316,9 @@ const Index = () => {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
 
-  const simulateConversion = useCallback(
+  const runConversion = useCallback(
     async (url: string, frameworks: string[]) => {
-      const token = localStorage.getItem("figma_token");
+      const token = getFigmaToken();
       if (!token) {
         setError("Please add your Figma Access Token in Settings first.");
         return;
@@ -331,13 +330,8 @@ const Index = () => {
       setFiles([]);
       setPreviewHtml(null);
 
-      // Extract a component name from URL
-      const urlParts = url.split("/");
-      const rawName = urlParts[urlParts.length - 1] || "MyComponent";
-      const name = rawName
-        .replace(/[^a-zA-Z0-9-_ ]/g, "")
-        .replace(/[-_ ]+(.)/g, (_, c) => c.toUpperCase())
-        .replace(/^(.)/, (_, c) => c.toUpperCase()) || "MyComponent";
+      let name = extractComponentNameFromUrl(url);
+      let variants: string[] = ["Default"];
 
       const initialSteps: ConversionStep[] = MOCK_STEPS.map((s) => ({
         ...s,
@@ -361,9 +355,19 @@ const Index = () => {
       await new Promise((r) => setTimeout(r, 500));
       setSteps([]);
 
-      const generatedFiles = generateMockCode(name, frameworks);
+      try {
+        const nodeSummary = await fetchFigmaNodeSummary(url, token);
+        name = nodeSummary.componentName;
+        variants = nodeSummary.variantLabels;
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to fetch Figma node data.");
+        setIsConverting(false);
+        return;
+      }
+
+      const generatedFiles = generateMockCode(name, frameworks, variants);
       setFiles(generatedFiles);
-      setPreviewHtml(generatePreviewHtml(name));
+      setPreviewHtml(generatePreviewHtml(name, variants));
       setComponentName(name);
       setIsConverting(false);
     },
@@ -381,7 +385,7 @@ const Index = () => {
           <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
             <ImportPanel
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-              onConvert={simulateConversion}
+              onConvert={runConversion}
               steps={steps}
               isConverting={isConverting}
               error={error}

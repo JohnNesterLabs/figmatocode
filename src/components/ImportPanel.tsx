@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Send, Settings, Figma } from "lucide-react";
 import FrameworkChips from "./FrameworkChips";
 import ConversionProgress, { ConversionStep } from "./ConversionProgress";
+import { parseFigmaUrl } from "@/lib/figma";
 
 interface ImportPanelProps {
   onToggleSidebar: () => void;
@@ -28,7 +29,7 @@ const ImportPanel = ({
     onConvert(url.trim(), frameworks);
   };
 
-  const isValidUrl = url.includes("figma.com/design/") || url.includes("figma.com/file/");
+  const isValidUrl = Boolean(parseFigmaUrl(url));
 
   return (
     <div className="h-full flex flex-col bg-card">

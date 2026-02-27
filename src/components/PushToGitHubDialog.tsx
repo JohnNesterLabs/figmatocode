@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CodeFile } from "./CodePanel";
+import { buildRepoPath, normalizeRepoDirectory } from "@/lib/repoPath";
+import { getGitHubToken, setGitHubToken } from "@/lib/tokenStorage";
 import {
   Dialog,
   DialogContent,
@@ -56,9 +58,10 @@ const PushToGitHubDialog = ({
     `feat: add ${componentName} component`
   );
   const [directory, setDirectory] = useState("src/components");
+  const isValidDirectory = Boolean(normalizeRepoDirectory(directory));
 
   useEffect(() => {
-    const stored = localStorage.getItem("github_token");
+    const stored = getGitHubToken();
     if (stored) {
       setGithubToken(stored);
     }
@@ -72,6 +75,10 @@ const PushToGitHubDialog = ({
   }, [componentName]);
 
   const fetchRepos = async (token: string) => {
+    if (!supabase) {
+      setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -103,11 +110,16 @@ const PushToGitHubDialog = ({
 
   const handleConnectToken = () => {
     if (!githubToken.trim()) return;
-    localStorage.setItem("github_token", githubToken.trim());
-    fetchRepos(githubToken.trim());
+    const token = githubToken.trim();
+    setGitHubToken(token);
+    fetchRepos(token);
   };
 
   const handlePush = async () => {
+    if (!supabase) {
+      setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
+      return;
+    }
     setPushing(true);
     setError(null);
     setPushed(false);
@@ -144,10 +156,16 @@ const PushToGitHubDialog = ({
       }
 
       // Push files
-      const filesToPush = files.map((f) => ({
-        path: `${directory}/${f.name}`,
-        content: f.content,
-      }));
+      const filesToPush = files.map((f) => {
+        const path = buildRepoPath(directory, f.name);
+        if (!path) {
+          throw new Error("Invalid target directory or file name.");
+        }
+        return {
+          path,
+          content: f.content,
+        };
+      });
 
       const { data: result, error: pushError } =
         await supabase.functions.invoke("github-push?action=push", {
@@ -340,6 +358,11 @@ const PushToGitHubDialog = ({
                   onChange={(e) => setDirectory(e.target.value)}
                   className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
+                {!isValidDirectory && (
+                  <p className="text-xs text-destructive">
+                    Use a relative path with letters, numbers, `.`, `_`, `-`, and `/`.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -375,6 +398,7 @@ const PushToGitHubDialog = ({
                 onClick={handlePush}
                 disabled={
                   pushing ||
+                  !isValidDirectory ||
                   (tab === "existing" && !selectedRepo) ||
                   (tab === "new" && !newRepoName.trim())
                 }

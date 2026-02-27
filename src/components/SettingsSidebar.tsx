@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
 import { Eye, EyeOff, Settings, User, ChevronLeft, GitBranch, Check as CheckIcon } from "lucide-react";
+import {
+  getFigmaToken,
+  getGitHubToken,
+  setFigmaToken,
+  setGitHubToken,
+} from "@/lib/tokenStorage";
 
 interface SettingsSidebarProps {
   open: boolean;
@@ -15,14 +21,14 @@ const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("figma_token");
+    const stored = getFigmaToken();
     if (stored) setToken(stored);
-    const ghStored = localStorage.getItem("github_token");
+    const ghStored = getGitHubToken();
     if (ghStored) setGhToken(ghStored);
   }, []);
 
   const handleSave = () => {
-    localStorage.setItem("figma_token", token);
+    setFigmaToken(token);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -93,7 +99,7 @@ const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
           </div>
           <button
             onClick={() => {
-              localStorage.setItem("github_token", ghToken);
+              setGitHubToken(ghToken);
               setGhSaved(true);
               setTimeout(() => setGhSaved(false), 2000);
             }}
@@ -105,6 +111,7 @@ const SettingsSidebar = ({ open, onClose }: SettingsSidebarProps) => {
       </div>
 
       <div className="p-4 border-t border-border">
+        <p className="text-[10px] text-muted-foreground mb-3">Tokens are stored for this browser session only.</p>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
             <User className="w-4 h-4 text-muted-foreground" />

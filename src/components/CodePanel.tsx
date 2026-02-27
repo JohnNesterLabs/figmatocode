@@ -35,6 +35,21 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownload = () => {
+    const file = files[activeTab];
+    if (!file) return;
+    const content = editorContents[file.name] || file.content;
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
   const currentFile = files[activeTab];
 
   return (
@@ -54,8 +69,9 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
               {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
             </button>
             <button
+              onClick={handleDownload}
               className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
-              title="Download ZIP"
+              title="Download file"
             >
               <Download className="w-4 h-4" />
             </button>

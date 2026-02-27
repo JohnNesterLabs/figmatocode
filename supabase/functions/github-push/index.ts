@@ -22,6 +22,38 @@ interface PushRequest {
   isPrivate?: boolean;
 }
 
+const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
+const BRANCH_RE = /^[A-Za-z0-9._/-]{1,120}$/;
+const SAFE_PATH_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+const MAX_FILES_PER_PUSH = 100;
+const MAX_FILE_SIZE_BYTES = 500_000;
+
+function isSafeRepoPath(path: string): boolean {
+  if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\') || path.includes('\0')) {
+    return false;
+  }
+  const parts = path.split('/').filter(Boolean);
+  return parts.length > 0 && parts.every((part) => SAFE_PATH_SEGMENT_RE.test(part));
+}
+
+function validatePushRequest(body: PushRequest): string | null {
+  if (!OWNER_RE.test(body.owner)) return 'Invalid repository owner.';
+  if (!REPO_RE.test(body.repo)) return 'Invalid repository name.';
+  if (body.branch && !BRANCH_RE.test(body.branch)) return 'Invalid branch name.';
+  if (!body.files?.length) return 'At least one file is required.';
+  if (body.files.length > MAX_FILES_PER_PUSH) return `Too many files. Max is ${MAX_FILES_PER_PUSH}.`;
+
+  for (const file of body.files) {
+    if (!isSafeRepoPath(file.path)) return `Invalid file path: ${file.path}`;
+    if (new TextEncoder().encode(file.content ?? '').length > MAX_FILE_SIZE_BYTES) {
+      return `File too large: ${file.path}`;
+    }
+  }
+
+  return null;
+}
+
 async function githubFetch(url: string, token: string, options: RequestInit = {}) {
   const res = await fetch(url, {
     ...options,
@@ -120,7 +152,7 @@ async function pushFiles(token: string, owner: string, repo: string, branch: str
     }),
   });
 
-  return { commitSha: newCommit.sha, commitUrl: newCommit.html_url };
+  return { commitSha: newCommit.sha, commitUrl: `https://github.com/${owner}/${repo}/commit/${newCommit.sha}` };
 }
 
 Deno.serve(async (req) => {
@@ -179,6 +211,13 @@ Deno.serve(async (req) => {
       if (action === 'push') {
         if (!body.owner || !body.repo || !body.files?.length) {
           return new Response(JSON.stringify({ error: 'owner, repo, and files are required' }), {
+            status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const validationError = validatePushRequest(body);
+        if (validationError) {
+          return new Response(JSON.stringify({ error: validationError }), {
             status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }

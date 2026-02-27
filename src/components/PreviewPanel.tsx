@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Eye, RefreshCw } from "lucide-react";
 
 interface PreviewPanelProps {
@@ -5,6 +6,8 @@ interface PreviewPanelProps {
 }
 
 const PreviewPanel = ({ html }: PreviewPanelProps) => {
+  const [frameKey, setFrameKey] = useState(0);
+
   return (
     <div className="h-full flex flex-col bg-card">
       <div className="h-12 flex items-center justify-between px-4 border-b border-border">
@@ -13,7 +16,11 @@ const PreviewPanel = ({ html }: PreviewPanelProps) => {
           <span className="text-sm font-semibold text-foreground">Preview</span>
         </div>
         {html && (
-          <button className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground">
+          <button
+            onClick={() => setFrameKey((prev) => prev + 1)}
+            className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
+            title="Reload preview"
+          >
             <RefreshCw className="w-4 h-4" />
           </button>
         )}
@@ -22,6 +29,7 @@ const PreviewPanel = ({ html }: PreviewPanelProps) => {
       <div className="flex-1 overflow-hidden">
         {html ? (
           <iframe
+            key={frameKey}
             srcDoc={html}
             className="w-full h-full border-0"
             sandbox="allow-scripts"
