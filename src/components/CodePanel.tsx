@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   Download,
   Copy,
@@ -12,7 +12,37 @@ import {
   File,
   X,
 } from "lucide-react";
-import Editor from "@monaco-editor/react";
+import Editor, { loader } from "@monaco-editor/react";
+
+// Add basic React types to Monaco
+const REACT_TYPES = `
+  declare module 'react' {
+    export function useState<T>(initialState: T | (() => T)): [T, (newState: T | (() => T)) => void];
+    export function useEffect(effect: () => void | (() => void), deps?: any[]): void;
+    export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T;
+    export function useMemo<T>(factory: () => T, deps: any[] | undefined): T;
+    export function useRef<T>(initialValue: T): { current: T };
+    export type ReactNode = any;
+    export type JSXElement = any;
+  }
+  declare namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+`;
+
+loader.init().then((monaco) => {
+  monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+    jsx: monaco.languages.typescript.JsxEmit.React,
+    jsxFactory: "React.createElement",
+    reactNamespace: "React",
+    allowNonTsExtensions: true,
+    target: monaco.languages.typescript.ScriptTarget.Latest,
+    allowJs: true,
+  });
+  monaco.languages.typescript.typescriptDefaults.addExtraLib(REACT_TYPES, "file:///node_modules/@types/react/index.d.ts");
+});
 
 export interface CodeFile {
   name: string;
@@ -23,6 +53,7 @@ export interface CodeFile {
 interface CodePanelProps {
   files: CodeFile[];
   onPushToGitHub?: () => void;
+  onEditorChange?: (contents: Record<string, string>) => void;
 }
 
 interface TreeNode {
@@ -94,7 +125,7 @@ const getParentFolders = (path: string): string[] => {
   return parents;
 };
 
-const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
+const CodePanel = ({ files, onPushToGitHub, onEditorChange }: CodePanelProps) => {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -103,6 +134,19 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   const fileByPath = useMemo(
     () => Object.fromEntries(files.map((file) => [file.name, file])),
     [files]
+  );
+
+  const editorChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyEditorChange = useCallback(
+    (contents: Record<string, string>) => {
+      if (!onEditorChange) return;
+      if (editorChangeTimeoutRef.current) clearTimeout(editorChangeTimeoutRef.current);
+      editorChangeTimeoutRef.current = setTimeout(() => {
+        onEditorChange(contents);
+        editorChangeTimeoutRef.current = null;
+      }, 400);
+    },
+    [onEditorChange]
   );
 
   useEffect(() => {
@@ -219,11 +263,10 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
         <button
           key={node.path}
           onClick={() => openFile(node.path)}
-          className={`w-full flex items-center gap-1.5 py-1.5 pr-2 text-xs text-left transition-colors ${
-            isActive
+          className={`w-full flex items-center gap-1.5 py-1.5 pr-2 text-xs text-left transition-colors ${isActive
               ? "bg-primary/10 text-foreground"
               : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
-          }`}
+            }`}
           style={{ paddingLeft }}
         >
           <File className="w-3.5 h-3.5 shrink-0" />
@@ -290,11 +333,10 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
                         key={path}
                         onClick={() => setActiveFilePath(path)}
                         title={path}
-                        className={`group h-full px-3 flex items-center gap-2 text-xs border-r border-border whitespace-nowrap ${
-                          isActive
+                        className={`group h-full px-3 flex items-center gap-2 text-xs border-r border-border whitespace-nowrap ${isActive
                             ? "bg-primary/10 text-foreground"
                             : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
-                        }`}
+                          }`}
                       >
                         <span className="max-w-40 truncate">{tabName}</span>
                         <span
@@ -319,7 +361,9 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
                     value={editorContents[currentFile.name] || currentFile.content}
                     onChange={(val) => {
                       if (val !== undefined && currentFile) {
-                        setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
+                        const next = { ...editorContents, [currentFile.name]: val };
+                        setEditorContents(next);
+                        notifyEditorChange(next);
                       }
                     }}
                     theme="vs-dark"
