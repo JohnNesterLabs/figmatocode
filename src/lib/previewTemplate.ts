@@ -134,28 +134,45 @@ function toFileSystemTree(files: Record<string, string>): FileSystemTree {
 
 /**
  * Generate full Vite + React + Tailwind project for WebContainer.
- * Includes base template + generated component + App that renders it.
  */
 export function buildPreviewProject(
   componentName: string,
   componentCode: string,
   componentCss: string
 ): FileSystemTree {
+  const projectFiles = getProjectFiles(componentName, componentCode, componentCss);
+  const fileMap: Record<string, string> = {};
+  projectFiles.forEach((f) => {
+    fileMap[f.name] = f.content;
+  });
+  return toFileSystemTree(fileMap);
+}
+export function getProjectFiles(
+  componentName: string,
+  componentCode: string,
+  componentCss: string
+): { name: string; content: string; language: string }[] {
   const componentPath = `./components/${componentName}`;
   const appTsx = buildAppTsx(componentName, componentPath);
-  const files: Record<string, string> = {
-    "package.json": BASE_PACKAGE_JSON,
-    "vite.config.ts": VITE_CONFIG,
-    "index.html": INDEX_HTML,
-    "tailwind.config.js": TAILWIND_CONFIG,
-    "postcss.config.js": POSTCSS_CONFIG,
-    "src/main.tsx": MAIN_TSX,
-    "src/App.tsx": appTsx,
-    "src/index.css": INDEX_CSS,
-    [`src/components/${componentName}.tsx`]: componentCode,
-    [`src/components/${componentName}.css`]: componentCss,
+
+  const rawFiles: Record<string, { content: string; language: string }> = {
+    "package.json": { content: BASE_PACKAGE_JSON, language: "json" },
+    "vite.config.ts": { content: VITE_CONFIG, language: "typescript" },
+    "index.html": { content: INDEX_HTML, language: "html" },
+    "tailwind.config.js": { content: TAILWIND_CONFIG, language: "javascript" },
+    "postcss.config.js": { content: POSTCSS_CONFIG, language: "javascript" },
+    "src/main.tsx": { content: MAIN_TSX, language: "typescript" },
+    "src/App.tsx": { content: appTsx, language: "typescript" },
+    "src/index.css": { content: INDEX_CSS, language: "css" },
+    [`src/components/${componentName}.tsx`]: { content: componentCode, language: "typescript" },
+    [`src/components/${componentName}.css`]: { content: componentCss, language: "css" },
   };
-  return toFileSystemTree(files);
+
+  return Object.entries(rawFiles).map(([name, data]) => ({
+    name,
+    content: data.content,
+    language: data.language,
+  }));
 }
 
 /**
@@ -172,12 +189,18 @@ export function extractReactPreviewFiles(
 }`;
   let componentCss = `/* ${componentName} */`;
 
+  // Look for generated files first, then project files
   const reactFile = files.find(
     (f) =>
       f.name.endsWith(".jsx") ||
-      (f.name.endsWith(".tsx") && !f.name.endsWith(".lite.tsx") && f.content.includes("from \"react\""))
+      (f.name.endsWith(".tsx") && !f.name.endsWith(".lite.tsx") && f.content.includes("from \"react\"")) ||
+      f.name === `src/components/${componentName}.tsx`
   );
-  const cssFile = files.find((f) => f.name.endsWith(".css") && f.name.toLowerCase().includes(nameLower));
+  const cssFile = files.find(
+    (f) =>
+      (f.name.endsWith(".css") && f.name.toLowerCase().includes(nameLower)) ||
+      f.name === `src/components/${componentName}.css`
+  );
 
   if (reactFile?.content) {
     componentCode = reactFile.content;
@@ -191,13 +214,28 @@ export function extractReactPreviewFiles(
 
 /**
  * Map WebContainer paths to CodeFile names for syncing editor content.
- * Use: contentForPath = editorContents[codeFileName] ?? files.find(f => f.name === codeFileName)?.content
+ * For the full project, names ARE the paths.
  */
 export function getPreviewPathToFileName(
   files: { name: string; content?: string }[],
   componentName: string
 ): Record<string, string> {
   const mapping: Record<string, string> = {};
+
+  // If we have full project paths (containing / or .html, .json etc), use identity mapping
+  const hasProjectPaths = files.some(f => f.name.includes("/") || f.name.includes(".json") || f.name.includes(".html"));
+
+  if (hasProjectPaths) {
+    files.forEach(f => {
+      // Only sync files that exist in the standard Vite project structure we mount
+      if (f.name.startsWith("src/") || f.name.includes(".ts") || f.name.includes(".js") || f.name === "index.html" || f.name === "package.json") {
+        mapping[f.name] = f.name;
+      }
+    });
+    return mapping;
+  }
+
+  // Fallback for legacy "only 3 files" mode
   const nameLower = componentName.toLowerCase();
   const reactFile = files.find(
     (f) =>
@@ -215,3 +253,4 @@ export function getPreviewPathToFileName(
   }
   return mapping;
 }
+

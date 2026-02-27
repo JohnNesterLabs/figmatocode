@@ -17,6 +17,7 @@ import {
   buildPreviewProject,
   extractReactPreviewFiles,
   getPreviewPathToFileName,
+  getProjectFiles,
 } from "@/lib/previewTemplate";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
@@ -30,8 +31,8 @@ const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
 
 const generateMockCode = (name: string, frameworks: string[], variants: string[]): CodeFile[] => {
   const files: CodeFile[] = [];
-  const primaryLabel = variants[0] || "Default";
-  const secondaryLabel = variants[1] || primaryLabel;
+  const primaryLabel = (variants[0] || "Default").replace(/"/g, '\\"').replace(/\n/g, ' ');
+  const secondaryLabel = (variants[1] || primaryLabel).replace(/"/g, '\\"').replace(/\n/g, ' ');
 
   files.push({
     name: `${name}.lite.tsx`,
@@ -409,6 +410,11 @@ const Index = () => {
           generatedFiles.map((f) => ({ name: f.name, content: f.content })),
           name
         );
+
+        // Populate Explorer with full Vite project instead of just the 3 generated files
+        const projectFiles = getProjectFiles(name, componentCode, componentCss);
+        setFiles(projectFiles);
+
         const tree = buildPreviewProject(name, componentCode, componentCss);
         bootAndMount(tree).catch(() => {
           // Error already set in hook
