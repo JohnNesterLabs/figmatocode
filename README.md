@@ -27,6 +27,16 @@ Set these in `.env.local`:
 
 Without these values, the "Push to GitHub" dialog will be disabled by runtime checks.
 
+For GitHub OAuth (Connect GitHub button), set Edge Function secrets:
+
+- `GITHUB_OAUTH_CLIENT_ID`
+- `GITHUB_OAUTH_CLIENT_SECRET`
+
+And configure your GitHub OAuth App callback URL to:
+
+- `http://localhost:8080/auth/github/callback` (local)
+- `https://<your-domain>/auth/github/callback` (production)
+
 ## Scripts
 
 - `npm run dev` - start dev server

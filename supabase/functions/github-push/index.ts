@@ -23,6 +23,11 @@ interface PushRequest {
   isPrivate?: boolean;
 }
 
+interface OAuthExchangeRequest {
+  code: string;
+  redirectUri?: string;
+}
+
 const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const BRANCH_RE = /^[A-Za-z0-9._/-]{1,120}$/;
@@ -91,6 +96,65 @@ async function listUserRepos(token: string) {
 
 async function getUser(token: string) {
   return githubFetch('https://api.github.com/user', token);
+}
+
+function getOAuthConfig() {
+  const clientId = Deno.env.get('GITHUB_OAUTH_CLIENT_ID') || '';
+  const clientSecret = Deno.env.get('GITHUB_OAUTH_CLIENT_SECRET') || '';
+  return {
+    clientId,
+    clientSecret,
+    configured: Boolean(clientId && clientSecret),
+  };
+}
+
+function normalizeRedirectUri(raw?: string): string {
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function buildGitHubOAuthUrl(clientId: string, redirectUri: string, state: string): string {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: 'repo read:user',
+    state,
+    allow_signup: 'true',
+  });
+  return `https://github.com/login/oauth/authorize?${params.toString()}`;
+}
+
+async function exchangeOAuthCodeForToken(
+  clientId: string,
+  clientSecret: string,
+  code: string,
+  redirectUri?: string,
+) {
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data?.access_token) {
+    throw new Error(`GitHub OAuth error: ${JSON.stringify(data)}`);
+  }
+  return data.access_token as string;
 }
 
 async function pushFiles(token: string, owner: string, repo: string, branch: string, message: string, files: FileToCommit[]) {
@@ -165,6 +229,28 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const action = url.searchParams.get('action');
 
+    if (req.method === 'GET' && action === 'oauth-url') {
+      const { clientId, configured } = getOAuthConfig();
+      if (!configured) {
+        return new Response(JSON.stringify({ error: 'GitHub OAuth is not configured on the edge function.' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const redirectUri = normalizeRedirectUri(url.searchParams.get('redirect_uri') || undefined);
+      if (!redirectUri) {
+        return new Response(JSON.stringify({ error: 'A valid redirect_uri is required.' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const state = crypto.randomUUID();
+      const oauthUrl = buildGitHubOAuthUrl(clientId, redirectUri, state);
+      return new Response(JSON.stringify({ url: oauthUrl, state }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (req.method === 'GET') {
       const authHeader = req.headers.get('x-github-token');
       if (!authHeader) {
@@ -189,6 +275,33 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === 'POST') {
+      if (action === 'exchange-code') {
+        const { clientId, clientSecret, configured } = getOAuthConfig();
+        if (!configured) {
+          return new Response(JSON.stringify({ error: 'GitHub OAuth is not configured on the edge function.' }), {
+            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const body: OAuthExchangeRequest = await req.json();
+        if (!body?.code) {
+          return new Response(JSON.stringify({ error: 'OAuth code is required.' }), {
+            status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const accessToken = await exchangeOAuthCodeForToken(
+          clientId,
+          clientSecret,
+          body.code,
+          normalizeRedirectUri(body.redirectUri),
+        );
+        const user = await getUser(accessToken);
+        return new Response(JSON.stringify({ accessToken, user }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const body: PushRequest = await req.json();
 
       if (!body.githubToken) {

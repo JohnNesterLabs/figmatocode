@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { CodeFile } from "./CodePanel";
 import { buildRepoPath, normalizeRepoDirectory } from "@/lib/repoPath";
@@ -19,6 +19,35 @@ import {
   Globe,
   FolderGit2,
 } from "lucide-react";
+
+const GITHUB_OAUTH_STATE_KEY = "github_oauth_state";
+
+interface GitHubOAuthMessage {
+  type: "github-oauth";
+  code?: string;
+  state?: string;
+  error?: string;
+}
+
+const getFunctionErrorMessage = async (error: unknown, fallback: string): Promise<string> => {
+  if (!(error instanceof Error)) return fallback;
+  const maybeContext = (error as { context?: unknown }).context;
+  if (maybeContext instanceof Response) {
+    try {
+      const json = await maybeContext.clone().json();
+      if (typeof json?.error === "string" && json.error.trim()) return json.error;
+      if (typeof json?.message === "string" && json.message.trim()) return json.message;
+    } catch {
+      try {
+        const text = await maybeContext.clone().text();
+        if (text.trim()) return text;
+      } catch {
+        // noop
+      }
+    }
+  }
+  return error.message || fallback;
+};
 
 interface GitHubRepo {
   id: number;
@@ -61,20 +90,13 @@ const PushToGitHubDialog = ({
   const isValidDirectory = Boolean(normalizeRepoDirectory(directory));
 
   useEffect(() => {
-    const stored = getGitHubToken();
-    if (stored) {
-      setGithubToken(stored);
-    }
-  }, []);
-
-  useEffect(() => {
     if (componentName) {
       setCommitMessage(`feat: add ${componentName} component`);
       setNewRepoName(componentName.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
     }
   }, [componentName]);
 
-  const fetchRepos = async (token: string) => {
+  const fetchRepos = useCallback(async (token: string) => {
     if (!supabase) {
       setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
       return;
@@ -102,17 +124,110 @@ const PushToGitHubDialog = ({
       );
       if (userData?.login) setUsername(userData.login);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to fetch repos");
+      setError(await getFunctionErrorMessage(e, "Failed to fetch repos"));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleConnectToken = () => {
-    if (!githubToken.trim()) return;
-    const token = githubToken.trim();
-    setGitHubToken(token);
-    fetchRepos(token);
+  useEffect(() => {
+    const stored = getGitHubToken();
+    if (!stored) return;
+    setGithubToken(stored);
+    fetchRepos(stored);
+  }, [fetchRepos]);
+
+  useEffect(() => {
+    const handleOAuthMessage = async (event: MessageEvent<GitHubOAuthMessage>) => {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data;
+      if (!payload || payload.type !== "github-oauth") return;
+      if (payload.error) {
+        setError(`GitHub OAuth failed: ${payload.error}`);
+        return;
+      }
+      if (!payload.code || !payload.state) {
+        setError("GitHub OAuth callback is missing required parameters.");
+        return;
+      }
+
+      const expectedState = window.sessionStorage.getItem(GITHUB_OAUTH_STATE_KEY);
+      window.sessionStorage.removeItem(GITHUB_OAUTH_STATE_KEY);
+      if (!expectedState || expectedState !== payload.state) {
+        setError("GitHub OAuth state mismatch. Please try connecting again.");
+        return;
+      }
+
+      if (!supabase) {
+        setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const redirectUri = `${window.location.origin}/auth/github/callback`;
+        const { data, error: exchangeError } = await supabase.functions.invoke("github-push?action=exchange-code", {
+          method: "POST",
+          body: {
+            code: payload.code,
+            redirectUri,
+          },
+        });
+
+        if (exchangeError) throw exchangeError;
+
+        const token = data?.accessToken;
+        if (!token || typeof token !== "string") {
+          throw new Error("OAuth token exchange did not return an access token.");
+        }
+        setGitHubToken(token);
+        setGithubToken(token);
+        await fetchRepos(token);
+      } catch (e: unknown) {
+        setError(await getFunctionErrorMessage(e, "Failed to exchange GitHub OAuth code"));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener("message", handleOAuthMessage as EventListener);
+    return () => {
+      window.removeEventListener("message", handleOAuthMessage as EventListener);
+    };
+  }, [fetchRepos]);
+
+  const handleConnectGitHub = async () => {
+    if (!supabase) {
+      setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const redirectUri = `${window.location.origin}/auth/github/callback`;
+      const { data, error: oauthError } = await supabase.functions.invoke("github-push?action=oauth-url&redirect_uri=" + encodeURIComponent(redirectUri), {
+        method: "GET",
+      });
+
+      if (oauthError) throw oauthError;
+      if (!data?.url || !data?.state) {
+        throw new Error("GitHub OAuth is not configured. Missing OAuth URL/state.");
+      }
+
+      window.sessionStorage.setItem(GITHUB_OAUTH_STATE_KEY, data.state);
+      const popup = window.open(data.url, "github-oauth", "width=620,height=720");
+      if (!popup) {
+        throw new Error("Popup blocked. Allow popups and try again.");
+      }
+      popup.focus();
+    } catch (e: unknown) {
+      setError(await getFunctionErrorMessage(e, "Failed to start GitHub OAuth"));
+      setLoading(false);
+      return;
+    }
+    setLoading(false);
   };
 
   const handlePush = async () => {
@@ -187,7 +302,7 @@ const PushToGitHubDialog = ({
           `https://github.com/${owner}/${repo}`
       );
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Push failed");
+      setError(await getFunctionErrorMessage(e, "Push failed"));
     } finally {
       setPushing(false);
     }
@@ -206,34 +321,19 @@ const PushToGitHubDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Token input */}
+          {/* GitHub OAuth */}
           {!hasRepos && (
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                GitHub Personal Access Token
+                GitHub Connection
               </label>
               <p className="text-xs text-muted-foreground">
-                Create a token at{" "}
-                <a
-                  href="https://github.com/settings/tokens/new?scopes=repo"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  github.com/settings/tokens
-                </a>{" "}
-                with <code className="text-xs font-mono bg-muted px-1 rounded">repo</code> scope.
+                Connect your GitHub account to list repositories and push generated files.
+                You will approve access once in GitHub.
               </p>
-              <input
-                type="password"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="ghp_..."
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
               <button
-                onClick={handleConnectToken}
-                disabled={!githubToken.trim() || loading}
+                onClick={handleConnectGitHub}
+                disabled={loading}
                 className="w-full py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 transition-colors flex items-center justify-center gap-2"
               >
                 {loading ? (
@@ -241,8 +341,19 @@ const PushToGitHubDialog = ({
                 ) : (
                   <GitBranch className="w-4 h-4" />
                 )}
-                Connect to GitHub
+                Connect GitHub
               </button>
+              <p className="text-[11px] text-muted-foreground">
+                If OAuth is not configured yet, you can still create a classic token at{" "}
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=repo"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  github.com/settings/tokens
+                </a>.
+              </p>
             </div>
           )}
 
@@ -271,6 +382,24 @@ const PushToGitHubDialog = ({
 
           {hasRepos && !pushed && (
             <>
+              <div className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  Connected as <span className="font-medium text-foreground">{username}</span>
+                </p>
+                <button
+                  onClick={() => {
+                    setGitHubToken("");
+                    setGithubToken("");
+                    setRepos([]);
+                    setSelectedRepo(null);
+                    setUsername("");
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+
               {/* Tabs: Existing / New */}
               <div className="flex border-b border-border">
                 <button
