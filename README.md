@@ -49,3 +49,4 @@ And configure your GitHub OAuth App callback URL to:
 
 - Figma and GitHub tokens are stored in `sessionStorage` (per browser session).
 - Current conversion output is scaffolded code generation; the app now validates/fetches Figma node data (name + variants) before generating files.
+- **Live preview** uses WebContainers (in-browser Node.js). For the live Vite preview, use Chrome or Edge. Other browsers fall back to static HTML preview.

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import TopBar from "@/components/TopBar";
 import SettingsSidebar from "@/components/SettingsSidebar";
@@ -12,6 +12,12 @@ import {
   fetchFigmaNodeSummary,
 } from "@/lib/figma";
 import { getFigmaToken } from "@/lib/tokenStorage";
+import { useWebContainer } from "@/hooks/useWebContainer";
+import {
+  buildPreviewProject,
+  extractReactPreviewFiles,
+  getPreviewPathToFileName,
+} from "@/lib/previewTemplate";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -315,6 +321,34 @@ const Index = () => {
   const [files, setFiles] = useState<CodeFile[]>([]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
+  const filesRef = useRef<CodeFile[]>([]);
+  filesRef.current = files;
+
+  const {
+    previewUrl,
+    status: webContainerStatus,
+    error: webContainerError,
+    isSupported: isWebContainerSupported,
+    bootAndMount,
+    writeFiles,
+  } = useWebContainer();
+
+  const onEditorChange = useCallback(
+    (contents: Record<string, string>) => {
+      const name = componentName;
+      const currentFiles = filesRef.current;
+      if (!name || !currentFiles.length || !writeFiles) return;
+      const pathToFileName = getPreviewPathToFileName(currentFiles, name);
+      const toWrite: Record<string, string> = {};
+      for (const [wcPath, codeFileName] of Object.entries(pathToFileName)) {
+        const file = currentFiles.find((f) => f.name === codeFileName);
+        const content = contents[codeFileName] ?? file?.content;
+        if (content) toWrite[wcPath] = content;
+      }
+      if (Object.keys(toWrite).length > 0) writeFiles(toWrite);
+    },
+    [componentName, writeFiles]
+  );
 
   const runConversion = useCallback(
     async (url: string, frameworks: string[]) => {
@@ -369,9 +403,21 @@ const Index = () => {
       setFiles(generatedFiles);
       setPreviewHtml(generatePreviewHtml(name, variants));
       setComponentName(name);
+
+      if (isWebContainerSupported && frameworks.includes("react")) {
+        const { componentCode, componentCss } = extractReactPreviewFiles(
+          generatedFiles.map((f) => ({ name: f.name, content: f.content })),
+          name
+        );
+        const tree = buildPreviewProject(name, componentCode, componentCss);
+        bootAndMount(tree).catch(() => {
+          // Error already set in hook
+        });
+      }
+
       setIsConverting(false);
     },
-    []
+    [isWebContainerSupported, bootAndMount]
   );
 
   return (
@@ -397,11 +443,18 @@ const Index = () => {
             <CodePanel
               files={files}
               onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+              onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
             />
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={30} minSize={20}>
-            <PreviewPanel html={previewHtml} />
+            <PreviewPanel
+              previewUrl={previewUrl}
+              html={previewHtml}
+              status={webContainerStatus}
+              error={webContainerError}
+              isWebContainerSupported={isWebContainerSupported}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

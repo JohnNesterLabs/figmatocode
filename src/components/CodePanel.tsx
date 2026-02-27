@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   Download,
   Copy,
@@ -23,6 +23,7 @@ export interface CodeFile {
 interface CodePanelProps {
   files: CodeFile[];
   onPushToGitHub?: () => void;
+  onEditorChange?: (contents: Record<string, string>) => void;
 }
 
 interface TreeNode {
@@ -94,7 +95,7 @@ const getParentFolders = (path: string): string[] => {
   return parents;
 };
 
-const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
+const CodePanel = ({ files, onPushToGitHub, onEditorChange }: CodePanelProps) => {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -103,6 +104,19 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
   const fileByPath = useMemo(
     () => Object.fromEntries(files.map((file) => [file.name, file])),
     [files]
+  );
+
+  const editorChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyEditorChange = useCallback(
+    (contents: Record<string, string>) => {
+      if (!onEditorChange) return;
+      if (editorChangeTimeoutRef.current) clearTimeout(editorChangeTimeoutRef.current);
+      editorChangeTimeoutRef.current = setTimeout(() => {
+        onEditorChange(contents);
+        editorChangeTimeoutRef.current = null;
+      }, 400);
+    },
+    [onEditorChange]
   );
 
   useEffect(() => {
@@ -319,7 +333,9 @@ const CodePanel = ({ files, onPushToGitHub }: CodePanelProps) => {
                     value={editorContents[currentFile.name] || currentFile.content}
                     onChange={(val) => {
                       if (val !== undefined && currentFile) {
-                        setEditorContents((prev) => ({ ...prev, [currentFile.name]: val }));
+                        const next = { ...editorContents, [currentFile.name]: val };
+                        setEditorContents(next);
+                        notifyEditorChange(next);
                       }
                     }}
                     theme="vs-dark"
