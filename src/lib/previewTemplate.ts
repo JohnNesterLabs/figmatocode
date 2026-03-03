@@ -16,6 +16,7 @@ const BASE_PACKAGE_JSON = `{
     "preview": "vite preview"
   },
   "dependencies": {
+    "lucide-react": "^0.462.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -190,10 +191,13 @@ export function extractReactPreviewFiles(
   let componentCss = `/* ${componentName} */`;
 
   // Look for generated files first, then project files
+  const hasReactImport = (content: string) =>
+    content.includes("from \"react\"") || content.includes("from 'react'");
   const reactFile = files.find(
     (f) =>
       f.name.endsWith(".jsx") ||
-      (f.name.endsWith(".tsx") && !f.name.endsWith(".lite.tsx") && f.content.includes("from \"react\"")) ||
+      (f.name.endsWith(".tsx") && !f.name.endsWith(".lite.tsx") && hasReactImport(f.content)) ||
+      f.name === `${componentName}.tsx` ||
       f.name === `src/components/${componentName}.tsx`
   );
   const cssFile = files.find(

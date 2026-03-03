@@ -96,14 +96,13 @@ export const extractComponentNameFromUrl = (url: string): string => {
   return toComponentName(parsed.fileKey);
 };
 
-export const fetchFigmaNodeSummary = async (figmaUrl: string, token: string): Promise<FigmaNodeSummary> => {
+export const fetchFigmaNodeData = async (figmaUrl: string, token: string): Promise<any> => {
   const parsed = parseFigmaUrl(figmaUrl);
   if (!parsed) {
     throw new Error("Invalid Figma URL. Use a figma.com/file/... or figma.com/design/... link.");
   }
 
   const headers = { "X-Figma-Token": token };
-  let rootNode: FigmaNode | null = null;
 
   if (parsed.nodeId) {
     const nodeId = normalizeNodeIdForApi(parsed.nodeId);
@@ -116,7 +115,7 @@ export const fetchFigmaNodeSummary = async (figmaUrl: string, token: string): Pr
       const message = typeof data?.message === "string" ? data.message : "Unable to fetch Figma node.";
       throw new Error(`Figma API error (${response.status}): ${message}`);
     }
-    rootNode = (data?.nodes?.[nodeId]?.document as FigmaNode | undefined) ?? null;
+    return (data?.nodes?.[nodeId]?.document as FigmaNode | undefined) ?? null;
   } else {
     const response = await fetch(`https://api.figma.com/v1/files/${parsed.fileKey}?depth=2`, { headers });
     const data = await response.json();
@@ -124,9 +123,17 @@ export const fetchFigmaNodeSummary = async (figmaUrl: string, token: string): Pr
       const message = typeof data?.message === "string" ? data.message : "Unable to fetch Figma file.";
       throw new Error(`Figma API error (${response.status}): ${message}`);
     }
-    rootNode = (data?.document as FigmaNode | undefined) ?? null;
+    return (data?.document as FigmaNode | undefined) ?? null;
+  }
+};
+
+export const fetchFigmaNodeSummary = async (figmaUrl: string, token: string): Promise<FigmaNodeSummary> => {
+  const parsed = parseFigmaUrl(figmaUrl);
+  if (!parsed) {
+    throw new Error("Invalid Figma URL.");
   }
 
+  const rootNode = await fetchFigmaNodeData(figmaUrl, token);
   const selectedNode = pickPreferredNode(rootNode);
   if (!selectedNode?.name) {
     throw new Error("Could not find a usable component node from the selected Figma design.");
@@ -139,6 +146,7 @@ export const fetchFigmaNodeSummary = async (figmaUrl: string, token: string): Pr
     variantLabels: extractVariantLabels(selectedNode),
   };
 };
+
 
 export const fetchFigmaFileMeta = async (figmaUrl: string, token: string): Promise<FigmaFileMeta> => {
   const parsed = parseFigmaUrl(figmaUrl);

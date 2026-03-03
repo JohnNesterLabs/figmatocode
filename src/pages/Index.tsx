@@ -9,9 +9,11 @@ import PushToGitHubDialog from "@/components/PushToGitHubDialog";
 import { ConversionStep } from "@/components/ConversionProgress";
 import {
   extractComponentNameFromUrl,
+  fetchFigmaNodeData,
   fetchFigmaNodeSummary,
 } from "@/lib/figma";
-import { getFigmaToken } from "@/lib/tokenStorage";
+import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
+import { generateComponentWithDeepSeek } from "@/lib/deepseek";
 import { useWebContainer } from "@/hooks/useWebContainer";
 import {
   buildPreviewProject,
@@ -24,8 +26,8 @@ const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
   { id: "parse", label: "Parsing variants & layers" },
   { id: "assets", label: "Exporting assets (SVG/PNG)" },
-  { id: "generate", label: "Generating Mitosis component" },
-  { id: "compile", label: "Compiling to target frameworks" },
+  { id: "generate", label: "AI-driven component generation" },
+  { id: "compile", label: "Optimizing code & accessibility" },
   { id: "css", label: "Injecting CSS & tokens" },
 ];
 
@@ -390,17 +392,31 @@ const Index = () => {
       await new Promise((r) => setTimeout(r, 500));
       setSteps([]);
 
+      let generatedFiles: CodeFile[] = [];
+      const deepseekToken = getDeepSeekToken();
+
       try {
+        const rawFigmaData = await fetchFigmaNodeData(url, token);
         const nodeSummary = await fetchFigmaNodeSummary(url, token);
         name = nodeSummary.componentName;
         variants = nodeSummary.variantLabels;
+
+        if (deepseekToken) {
+          console.log("Using DeepSeek for generation...");
+          const realCode = await generateComponentWithDeepSeek(name, rawFigmaData);
+          generatedFiles = [
+            { name: `${name}.tsx`, language: "typescript", content: realCode },
+            { name: `${name}.css`, language: "css", content: `/* Stylings bundled in TSX via Tailwind */` }
+          ];
+        } else {
+          generatedFiles = generateMockCode(name, frameworks, variants);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to fetch Figma node data.");
         setIsConverting(false);
         return;
       }
 
-      const generatedFiles = generateMockCode(name, frameworks, variants);
       setFiles(generatedFiles);
       setPreviewHtml(generatePreviewHtml(name, variants));
       setComponentName(name);

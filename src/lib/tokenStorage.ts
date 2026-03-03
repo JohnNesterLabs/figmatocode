@@ -1,5 +1,6 @@
 const FIGMA_TOKEN_KEY = "figma_token";
 const GITHUB_TOKEN_KEY = "github_token";
+const DEEPSEEK_TOKEN_KEY = "deepseek_token";
 
 const getStorage = (): Storage | null => {
   if (typeof window === "undefined") return null;
@@ -28,4 +29,16 @@ export const setGitHubToken = (token: string): void => {
     return;
   }
   storage.removeItem(GITHUB_TOKEN_KEY);
+};
+
+export const getDeepSeekToken = (): string => getStorage()?.getItem(DEEPSEEK_TOKEN_KEY) ?? "";
+
+export const setDeepSeekToken = (token: string): void => {
+  const storage = getStorage();
+  if (!storage) return;
+  if (token.trim()) {
+    storage.setItem(DEEPSEEK_TOKEN_KEY, token.trim());
+    return;
+  }
+  storage.removeItem(DEEPSEEK_TOKEN_KEY);
 };
