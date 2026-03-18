@@ -482,9 +482,31 @@ const Index = () => {
   // ── AI Edit handler ──
   const handleAIEdit = useCallback(
     async (prompt: string) => {
-      if (!selectedElement || !primaryComponentFileName) return;
-      const file = filesRef.current.find((f) => f.name === primaryComponentFileName);
-      if (!file) throw new Error("Component file not found.");
+      if (!selectedElement) return;
+
+      // AI Edit should target the file that actually contains the selected element.
+      // The preview template header often lives in src/App.tsx, not the component file.
+      const candidates = [primaryComponentFileName, "src/App.tsx"].filter(
+        (x): x is string => Boolean(x)
+      );
+      const files = filesRef.current;
+      const selectedText = (selectedElement.textContent || "").trim();
+
+      const pickBestFile = () => {
+        for (const name of candidates) {
+          const f = files.find((ff) => ff.name === name);
+          if (!f) continue;
+          if (selectedText && f.content.includes(selectedText)) return f;
+        }
+        // fallback to the primary component file if present, else first candidate found
+        const primary = primaryComponentFileName
+          ? files.find((ff) => ff.name === primaryComponentFileName)
+          : undefined;
+        return primary ?? files.find((ff) => candidates.includes(ff.name)) ?? null;
+      };
+
+      const file = pickBestFile();
+      if (!file) throw new Error("No suitable file found for AI edit.");
 
       const newCode = await editElementWithAI(
         prompt,
@@ -496,9 +518,20 @@ const Index = () => {
         },
         file.content
       );
-      applyAIEditResult(newCode);
+      // Apply back to the same file we sent to the model.
+      // (useVisualEdit.applyAIEditResult always targets the primary component file)
+      const patched = newCode
+        .replace(/^```(?:tsx?|jsx?|typescript|javascript)?\n?/, "")
+        .replace(/\n?```$/, "")
+        .trim();
+      setFiles((prev) => prev.map((f) => (f.name === file.name ? { ...f, content: patched } : f)));
+      if (writeFiles) {
+        writeFiles({ [file.name]: patched }).catch(() => {
+          /* handled in hook */
+        });
+      }
     },
-    [selectedElement, primaryComponentFileName, applyAIEditResult]
+    [selectedElement, primaryComponentFileName, writeFiles]
   );
 
   return (
