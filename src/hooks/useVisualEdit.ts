@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { patchComponentStyle, patchComponentText, patchTextInStringLiterals, applyAIEdit, PatchOptions } from "@/lib/codePatcher";
+import { patchComponentStyle, patchComponentText, patchTextInStringLiterals, patchCssFileOverride, applyAIEdit, PatchOptions } from "@/lib/codePatcher";
 
 export interface SelectedElement {
   selector: string;
@@ -47,7 +47,7 @@ export function useVisualEdit({
   onFileUpdate,
   getFileContent,
   componentFileName,
-  fallbackFileNames = ["src/App.tsx"],
+  fallbackFileNames = ["src/App.tsx", "src/index.css"],
 }: UseVisualEditOptions): UseVisualEditResult {
   const [isVisualEditMode, setIsVisualEditMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
@@ -101,6 +101,18 @@ export function useVisualEdit({
         return;
       }
       for (const file of files) {
+        // If this is a CSS file, append override rule there.
+        if (file.fileName.endsWith(".css")) {
+          const selector = patchOptsRef.current.selector || patchOptsRef.current.tagName || "*";
+          const patchedCss = patchCssFileOverride(file.content, selector, prop, value);
+          if (patchedCss !== file.content) {
+            setEditError(null);
+            onFileUpdate(file.fileName, patchedCss);
+            return;
+          }
+          continue;
+        }
+
         const patched = patchComponentStyle(file.content, prop, value, patchOptsRef.current);
         if (patched !== file.content) {
           setEditError(null);
@@ -108,6 +120,18 @@ export function useVisualEdit({
           return;
         }
       }
+      // Last resort: always write override to src/index.css if present.
+      const indexCss = getFileContent("src/index.css");
+      if (indexCss !== undefined) {
+        const selector = patchOptsRef.current.selector || patchOptsRef.current.tagName || "*";
+        const patchedCss = patchCssFileOverride(indexCss, selector, prop, value);
+        if (patchedCss !== indexCss) {
+          setEditError(null);
+          onFileUpdate("src/index.css", patchedCss);
+          return;
+        }
+      }
+
       setEditError("Couldn't apply this style change (no matching target found in code).");
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "Failed to patch style.");

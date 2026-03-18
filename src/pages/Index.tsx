@@ -355,7 +355,7 @@ const Index = () => {
     applyAIEditResult,
   } = useVisualEdit({
     componentFileName: primaryComponentFileName,
-    fallbackFileNames: ["src/App.tsx"],
+    fallbackFileNames: ["src/App.tsx", "src/index.css"],
     getFileContent: (name) => {
       const f = filesRef.current.find((f) => f.name === name);
       return f?.content;
