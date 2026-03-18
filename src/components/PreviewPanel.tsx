@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Eye, RefreshCw, Loader2, AlertCircle } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Eye, RefreshCw, Loader2, AlertCircle, Pencil, PencilOff } from "lucide-react";
+import { SelectedElement } from "@/hooks/useVisualEdit";
 
 interface PreviewPanelProps {
   /** WebContainer live preview URL (Vite dev server) — preferred when available */
@@ -10,6 +11,12 @@ interface PreviewPanelProps {
   status?: "idle" | "booting" | "mounting" | "installing" | "starting" | "ready" | "error";
   error?: string | null;
   isWebContainerSupported?: boolean;
+
+  // ── Visual Edit props ──
+  isVisualEditMode?: boolean;
+  onEnterEditMode?: () => void;
+  onExitEditMode?: () => void;
+  onElementSelect?: (element: SelectedElement) => void;
 }
 
 const PreviewPanel = ({
@@ -18,13 +25,74 @@ const PreviewPanel = ({
   status = "idle",
   error,
   isWebContainerSupported = true,
+  isVisualEditMode = false,
+  onEnterEditMode,
+  onExitEditMode,
+  onElementSelect,
 }: PreviewPanelProps) => {
   const [frameKey, setFrameKey] = useState(0);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeReady, setIframeReady] = useState(false);
 
   const useLivePreview = isWebContainerSupported && previewUrl;
   const useStaticFallback = html && !useLivePreview;
   const isLoading = status === "booting" || status === "mounting" || status === "installing" || status === "starting";
   const hasError = status === "error" && error;
+  const canVisualEdit = Boolean(useLivePreview) && !isLoading;
+
+  // ── postMessage bridge: send enable/disable to iframe ──
+  const postToFrame = useCallback((msg: object) => {
+    const frame = iframeRef.current;
+    if (!frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage(msg, "*");
+  }, []);
+
+  // When visual edit mode changes, tell the iframe to enable/disable
+  useEffect(() => {
+    if (!iframeReady) return;
+    if (isVisualEditMode) {
+      postToFrame({ type: "ve-enable" });
+    } else {
+      postToFrame({ type: "ve-disable" });
+    }
+  }, [isVisualEditMode, iframeReady, postToFrame]);
+
+  // Also re-send enable after iframe reloads
+  const handleIframeLoad = useCallback(() => {
+    setIframeReady(true);
+    if (isVisualEditMode) {
+      // Small delay to let the page initialize
+      setTimeout(() => postToFrame({ type: "ve-enable" }), 200);
+    }
+  }, [isVisualEditMode, postToFrame]);
+
+  // ── Listen for messages from iframe ──
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== "object") return;
+      if (e.data.type === "ve-select" && onElementSelect) {
+        onElementSelect(e.data.element as SelectedElement);
+      }
+      if (e.data.type === "ve-ready") {
+        // iframe confirmed it's in edit mode
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [onElementSelect]);
+
+  // Reset iframe-ready when preview URL changes
+  useEffect(() => {
+    setIframeReady(false);
+  }, [previewUrl, frameKey]);
+
+  const toggleEditMode = () => {
+    if (isVisualEditMode) {
+      onExitEditMode?.();
+    } else {
+      onEnterEditMode?.();
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-card">
@@ -37,17 +105,61 @@ const PreviewPanel = ({
               Live
             </span>
           )}
+          {isVisualEditMode && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium animate-pulse">
+              Editing
+            </span>
+          )}
         </div>
-        {(useLivePreview || useStaticFallback) && (
-          <button
-            onClick={() => setFrameKey((prev) => prev + 1)}
-            className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
-            title="Reload preview"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {/* Visual Edit toggle — only show for live WebContainer preview */}
+          {canVisualEdit && (
+            <button
+              onClick={toggleEditMode}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                isVisualEditMode
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-hover border border-border"
+              }`}
+              title={isVisualEditMode ? "Exit edit mode" : "Enter visual edit mode"}
+            >
+              {isVisualEditMode ? (
+                <>
+                  <PencilOff className="w-3.5 h-3.5" />
+                  <span>Done</span>
+                </>
+              ) : (
+                <>
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit</span>
+                </>
+              )}
+            </button>
+          )}
+          {(useLivePreview || useStaticFallback) && (
+            <button
+              onClick={() => {
+                setIframeReady(false);
+                setFrameKey((prev) => prev + 1);
+              }}
+              className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
+              title="Reload preview"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Visual edit instructions banner */}
+      {isVisualEditMode && canVisualEdit && (
+        <div className="px-4 py-2 bg-primary/5 border-b border-primary/10 flex items-center gap-2">
+          <Pencil className="w-3 h-3 text-primary shrink-0" />
+          <p className="text-[11px] text-primary/80">
+            Click any element in the preview to select and edit it
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-hidden">
         {isLoading && (
@@ -79,10 +191,13 @@ const PreviewPanel = ({
         {!isLoading && useLivePreview && (
           <iframe
             key={frameKey}
+            ref={iframeRef}
             src={previewUrl}
             className="w-full h-full border-0"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts allow-same-origin allow-forms"
             title="Live Component Preview"
+            onLoad={handleIframeLoad}
+            style={isVisualEditMode ? { cursor: "crosshair" } : undefined}
           />
         )}
 
@@ -104,7 +219,7 @@ const PreviewPanel = ({
               <p className="text-xs text-muted-foreground/50 mt-1">to see the preview</p>
               {!isWebContainerSupported && (
                 <p className="text-[10px] text-muted-foreground/70 mt-2 max-w-[200px] mx-auto">
-                  Use Chrome or Edge for live Vite preview
+                  Use Chrome or Edge for live Vite preview &amp; visual editing
                 </p>
               )}
             </div>

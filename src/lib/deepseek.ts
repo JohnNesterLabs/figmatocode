@@ -64,3 +64,65 @@ Requirements:
   text = text.replace(/```tsx\n?/, "").replace(/```\n?/, "").trim();
   return text;
 };
+
+/**
+ * Edit a specific element in a React component using AI.
+ * Returns the complete updated component code.
+ */
+export const editElementWithAI = async (
+  prompt: string,
+  elementInfo: { selector: string; tagName: string; innerHTML: string; computedStyles: Record<string, string> },
+  componentCode: string
+): Promise<string> => {
+  const token = getDeepSeekToken().trim();
+  if (!token) throw new Error("DeepSeek API Key is missing. Please add it in Settings.");
+
+  const userPrompt = `You are editing a specific element in a React component.
+
+ELEMENT INFO:
+- Tag: ${elementInfo.tagName}
+- CSS Selector: ${elementInfo.selector}
+- Current HTML: ${elementInfo.innerHTML.slice(0, 500)}
+- Current Styles: ${JSON.stringify(elementInfo.computedStyles, null, 2)}
+
+USER INSTRUCTION: "${prompt}"
+
+CURRENT COMPONENT CODE:
+\`\`\`tsx
+${componentCode}
+\`\`\`
+
+Return the COMPLETE updated component code with the requested change applied to the described element.
+Rules:
+- Return ONLY the raw TypeScript/React code. No markdown fences, no explanation.
+- Keep all existing functionality intact.
+- Apply the change only to the element described above.
+- Use Tailwind CSS for styling if the code already uses Tailwind; otherwise use inline styles.`;
+
+  const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: "You are an expert React/TypeScript developer. You modify React components precisely as instructed. Return ONLY raw code, no markdown." },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `DeepSeek API error: ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  let text = data.choices?.[0]?.message?.content ?? "";
+  text = text.replace(/```(?:tsx?|jsx?|typescript|javascript)?\n?/, "").replace(/```\n?/, "").trim();
+  return text;
+};

@@ -6,6 +6,7 @@ import ImportPanel from "@/components/ImportPanel";
 import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
 import PushToGitHubDialog from "@/components/PushToGitHubDialog";
+import VisualEditPanel from "@/components/VisualEditPanel";
 import { ConversionStep } from "@/components/ConversionProgress";
 import {
   extractComponentNameFromUrl,
@@ -13,8 +14,9 @@ import {
   fetchFigmaNodeSummary,
 } from "@/lib/figma";
 import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
-import { generateComponentWithDeepSeek } from "@/lib/deepseek";
+import { generateComponentWithDeepSeek, editElementWithAI } from "@/lib/deepseek";
 import { useWebContainer } from "@/hooks/useWebContainer";
+import { useVisualEdit } from "@/hooks/useVisualEdit";
 import {
   buildPreviewProject,
   extractReactPreviewFiles,
@@ -336,6 +338,40 @@ const Index = () => {
     writeFiles,
   } = useWebContainer();
 
+  // ── Visual Edit state ──
+  const primaryComponentFileName = componentName
+    ? `src/components/${componentName}.tsx`
+    : null;
+
+  const {
+    isVisualEditMode,
+    selectedElement,
+    editError,
+    enterEditMode,
+    exitEditMode,
+    handleElementSelect,
+    applyStyleEdit,
+    applyTextEdit,
+    applyAIEditResult,
+  } = useVisualEdit({
+    componentFileName: primaryComponentFileName,
+    fallbackFileNames: ["src/App.tsx"],
+    getFileContent: (name) => {
+      const f = filesRef.current.find((f) => f.name === name);
+      return f?.content;
+    },
+    onFileUpdate: (fileName, newContent) => {
+      // Update local files state (so Monaco reflects the change)
+      setFiles((prev) =>
+        prev.map((f) => (f.name === fileName ? { ...f, content: newContent } : f))
+      );
+      // Also write to WebContainer for hot-reload
+      if (writeFiles) {
+        writeFiles({ [fileName]: newContent }).catch(() => {/* handled in hook */ });
+      }
+    },
+  });
+
   const onEditorChange = useCallback(
     (contents: Record<string, string>) => {
       const name = componentName;
@@ -366,6 +402,7 @@ const Index = () => {
       setComponentName(null);
       setFiles([]);
       setPreviewHtml(null);
+      exitEditMode(); // Reset visual edit on new conversion
 
       let name = extractComponentNameFromUrl(url);
       let variants: string[] = ["Default"];
@@ -427,11 +464,11 @@ const Index = () => {
           name
         );
 
-        // Populate Explorer with full Vite project instead of just the 3 generated files
-        const projectFiles = getProjectFiles(name, componentCode, componentCss);
+        // Populate Explorer with full Vite project files
+        const projectFiles = getProjectFiles(name, componentCode, componentCss, true); // inject visual edit
         setFiles(projectFiles);
 
-        const tree = buildPreviewProject(name, componentCode, componentCss);
+        const tree = buildPreviewProject(name, componentCode, componentCss, true); // inject visual edit
         bootAndMount(tree).catch(() => {
           // Error already set in hook
         });
@@ -439,7 +476,29 @@ const Index = () => {
 
       setIsConverting(false);
     },
-    [isWebContainerSupported, bootAndMount]
+    [isWebContainerSupported, bootAndMount, exitEditMode]
+  );
+
+  // ── AI Edit handler ──
+  const handleAIEdit = useCallback(
+    async (prompt: string) => {
+      if (!selectedElement || !primaryComponentFileName) return;
+      const file = filesRef.current.find((f) => f.name === primaryComponentFileName);
+      if (!file) throw new Error("Component file not found.");
+
+      const newCode = await editElementWithAI(
+        prompt,
+        {
+          selector: selectedElement.selector,
+          tagName: selectedElement.tagName,
+          innerHTML: selectedElement.innerHTML,
+          computedStyles: selectedElement.computedStyles,
+        },
+        file.content
+      );
+      applyAIEditResult(newCode);
+    },
+    [selectedElement, primaryComponentFileName, applyAIEditResult]
   );
 
   return (
@@ -470,13 +529,35 @@ const Index = () => {
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
           <ResizablePanel defaultSize={30} minSize={20}>
-            <PreviewPanel
-              previewUrl={previewUrl}
-              html={previewHtml}
-              status={webContainerStatus}
-              error={webContainerError}
-              isWebContainerSupported={isWebContainerSupported}
-            />
+            <div className="h-full flex">
+              <div className="flex-1 overflow-hidden">
+                <PreviewPanel
+                  previewUrl={previewUrl}
+                  html={previewHtml}
+                  status={webContainerStatus}
+                  error={webContainerError}
+                  isWebContainerSupported={isWebContainerSupported}
+                  isVisualEditMode={isVisualEditMode}
+                  onEnterEditMode={enterEditMode}
+                  onExitEditMode={exitEditMode}
+                  onElementSelect={handleElementSelect}
+                />
+              </div>
+              {/* Visual Edit Panel — shown when element is selected */}
+              {isVisualEditMode && selectedElement && (
+                <VisualEditPanel
+                  element={selectedElement}
+                  componentCode={
+                    filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
+                  }
+                  onStyleChange={applyStyleEdit}
+                  onTextChange={applyTextEdit}
+                  onAIEdit={handleAIEdit}
+                  onClose={exitEditMode}
+                  editError={editError}
+                />
+              )}
+            </div>
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

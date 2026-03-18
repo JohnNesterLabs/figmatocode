@@ -4,6 +4,7 @@
  */
 
 import type { FileSystemTree } from "@webcontainer/api";
+import { injectVisualEditScript } from "@/lib/previewInject";
 
 const BASE_PACKAGE_JSON = `{
   "name": "preview-app",
@@ -139,9 +140,10 @@ function toFileSystemTree(files: Record<string, string>): FileSystemTree {
 export function buildPreviewProject(
   componentName: string,
   componentCode: string,
-  componentCss: string
+  componentCss: string,
+  injectVisualEdit = false
 ): FileSystemTree {
-  const projectFiles = getProjectFiles(componentName, componentCode, componentCss);
+  const projectFiles = getProjectFiles(componentName, componentCode, componentCss, injectVisualEdit);
   const fileMap: Record<string, string> = {};
   projectFiles.forEach((f) => {
     fileMap[f.name] = f.content;
@@ -151,15 +153,17 @@ export function buildPreviewProject(
 export function getProjectFiles(
   componentName: string,
   componentCode: string,
-  componentCss: string
+  componentCss: string,
+  injectVisualEdit = false
 ): { name: string; content: string; language: string }[] {
   const componentPath = `./components/${componentName}`;
   const appTsx = buildAppTsx(componentName, componentPath);
+  const indexHtml = injectVisualEdit ? injectVisualEditScript(INDEX_HTML) : INDEX_HTML;
 
   const rawFiles: Record<string, { content: string; language: string }> = {
     "package.json": { content: BASE_PACKAGE_JSON, language: "json" },
     "vite.config.ts": { content: VITE_CONFIG, language: "typescript" },
-    "index.html": { content: INDEX_HTML, language: "html" },
+    "index.html": { content: indexHtml, language: "html" },
     "tailwind.config.js": { content: TAILWIND_CONFIG, language: "javascript" },
     "postcss.config.js": { content: POSTCSS_CONFIG, language: "javascript" },
     "src/main.tsx": { content: MAIN_TSX, language: "typescript" },

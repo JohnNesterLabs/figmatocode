@@ -37,6 +37,29 @@ And configure your GitHub OAuth App callback URL to:
 - `http://localhost:8080/auth/github/callback` (local)
 - `https://<your-domain>/auth/github/callback` (production)
 
+## Option A: Merge from figma-to-code-starter template
+
+To pull in config, Supabase layout, and docs from [nester-dev-bot/figma-to-code-starter](https://github.com/nester-dev-bot/figma-to-code-starter) without replacing your app code:
+
+1. **Clone the template** (you need access to the repo):
+   ```sh
+   git clone https://github.com/nester-dev-bot/figma-to-code-starter.git .template-ref
+   ```
+
+2. **Run the merge script:**
+   ```sh
+   node scripts/merge-from-template.js
+   ```
+   Or with a custom path: `TEMPLATE_REF=../figma-to-code-starter node scripts/merge-from-template.js`
+
+3. **Install and run:**
+   ```sh
+   npm install
+   npm run dev
+   ```
+
+The script copies `BACKEND.md`, `components.json`, `eslint.config.js`, `index.html`, merges `package.json` (adds template deps) and `.env.example`, and adds any missing Supabase files (it does not overwrite `supabase/functions/`). Your `src/` is left unchanged.
+
 ## Scripts
 
 - `npm run dev` - start dev server
@@ -44,6 +67,7 @@ And configure your GitHub OAuth App callback URL to:
 - `npm run lint` - eslint
 - `npm test` - run tests once
 - `npm run test:watch` - run tests in watch mode
+- `node scripts/merge-from-template.js [path]` - merge from figma-to-code-starter template (Option A)
 
 ## Notes
 

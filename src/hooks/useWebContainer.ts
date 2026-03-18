@@ -42,6 +42,7 @@ export function useWebContainer(): UseWebContainerResult {
   const instanceRef = useRef<WebContainer | null>(null);
   const devServerProcessRef = useRef<{ kill: () => void } | null>(null);
   const lastWrittenRef = useRef<Record<string, string>>({});
+  const lastDevLogsRef = useRef<string>("");
 
   const bootAndMount = useCallback(async (tree: FileSystemTree) => {
     if (!isSupported) {
@@ -83,11 +84,28 @@ export function useWebContainer(): UseWebContainerResult {
 
       devProcess.output.pipeTo(
         new WritableStream({
-          write() {
-            // Dev server logs; could capture for debugging
+          write(chunk) {
+            // Capture a small tail of logs for error reporting.
+            const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk as Uint8Array);
+            lastDevLogsRef.current = (lastDevLogsRef.current + text).slice(-8000);
           },
         })
       );
+
+      // If the dev server dies, clear the preview URL so the iframe doesn't keep trying a dead port.
+      devProcess.exit.then((code) => {
+        if (code === 0) return;
+        setPreviewUrl(null);
+        setStatus("error");
+        const tail = lastDevLogsRef.current.trim();
+        setError(
+          tail
+            ? `Preview dev server exited (code ${code}).\n\n${tail}`
+            : `Preview dev server exited (code ${code}).`
+        );
+      }).catch(() => {
+        // ignore
+      });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {

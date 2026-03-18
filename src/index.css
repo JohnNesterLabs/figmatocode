@@ -1,74 +1,68 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 96%;
+@theme {
+  /* Semantic colors for utilities (bg-*, text-*, border-*, etc.) */
+  --color-background: hsl(0 0% 0%);
+  --color-foreground: hsl(0 0% 96%);
+  --color-card: hsl(0 0% 4%);
+  --color-card-foreground: hsl(0 0% 96%);
+  --color-popover: hsl(0 0% 6%);
+  --color-popover-foreground: hsl(0 0% 96%);
+  --color-primary: hsl(358 86% 57%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(0 0% 10%);
+  --color-secondary-foreground: hsl(0 0% 96%);
+  --color-muted: hsl(0 0% 8%);
+  --color-muted-foreground: hsl(240 4% 66%);
+  --color-accent: hsl(0 0% 12%);
+  --color-accent-foreground: hsl(0 0% 96%);
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-success: hsl(142 71% 45%);
+  --color-success-foreground: hsl(0 0% 100%);
+  --color-warning: hsl(38 92% 50%);
+  --color-warning-foreground: hsl(0 0% 0%);
+  --color-border: hsl(0 0% 14%);
+  --color-input: hsl(0 0% 14%);
+  --color-ring: hsl(358 86% 57%);
+  --color-sidebar-background: hsl(0 0% 3%);
+  --color-sidebar-foreground: hsl(0 0% 96%);
+  --color-sidebar-primary: hsl(358 86% 57%);
+  --color-sidebar-primary-foreground: hsl(0 0% 100%);
+  --color-sidebar-accent: hsl(0 0% 10%);
+  --color-sidebar-accent-foreground: hsl(0 0% 96%);
+  --color-sidebar-border: hsl(0 0% 14%);
+  --color-sidebar-ring: hsl(358 86% 57%);
+  --radius-default: 0.75rem;
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
 
-    --card: 0 0% 4%;
-    --card-foreground: 0 0% 96%;
-
-    --popover: 0 0% 6%;
-    --popover-foreground: 0 0% 96%;
-
-    --primary: 358 86% 57%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 0 0% 10%;
-    --secondary-foreground: 0 0% 96%;
-
-    --muted: 0 0% 8%;
-    --muted-foreground: 240 4% 66%;
-
-    --accent: 0 0% 12%;
-    --accent-foreground: 0 0% 96%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 142 71% 45%;
-    --success-foreground: 0 0% 100%;
-
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 0%;
-
-    --border: 0 0% 14%;
-    --input: 0 0% 14%;
-    --ring: 358 86% 57%;
-
-    --radius: 0.75rem;
-
-    --surface: 0 0% 100% / 0.03;
-    --surface-hover: 0 0% 100% / 0.06;
-    --surface-active: 0 0% 100% / 0.09;
-
-    --sidebar-background: 0 0% 3%;
-    --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 358 86% 57%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 0 0% 14%;
-    --sidebar-ring: 358 86% 57%;
-  }
+/* Non-utility variables (used in arbitrary values or JS) */
+:root {
+  --radius: 0.75rem;
+  --surface: 0 0% 100% / 0.03;
+  --surface-hover: 0 0% 100% / 0.06;
+  --surface-active: 0 0% 100% / 0.09;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: var(--color-border);
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Poppins', sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   code, pre, .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
   }
 }
 
