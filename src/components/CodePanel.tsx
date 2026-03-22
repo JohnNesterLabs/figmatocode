@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Editor, { loader } from "@monaco-editor/react";
+import { useTheme } from "next-themes";
 
 // Add basic React types to Monaco
 const REACT_TYPES = `
@@ -126,6 +127,7 @@ const getParentFolders = (path: string): string[] => {
 };
 
 const CodePanel = ({ files, onPushToGitHub, onEditorChange }: CodePanelProps) => {
+  const { resolvedTheme } = useTheme();
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -366,7 +368,7 @@ const CodePanel = ({ files, onPushToGitHub, onEditorChange }: CodePanelProps) =>
                         notifyEditorChange(next);
                       }
                     }}
-                    theme="vs-dark"
+                    theme={resolvedTheme === "dark" ? "vs-dark" : "vs"}
                     options={{
                       fontSize: 13,
                       fontFamily: "'JetBrains Mono', monospace",
