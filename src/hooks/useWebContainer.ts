@@ -34,15 +34,20 @@ function checkWebContainerSupport(): boolean {
 
 const isSupported = checkWebContainerSupport();
 
+// WebContainer can only be booted once per page/origin.
+// In dev, React/Vite HMR can remount hooks, so keep a true singleton here.
+let sharedInstance: WebContainer | null = null;
+let sharedBootPromise: Promise<WebContainer> | null = null;
+
 export function useWebContainer(): UseWebContainerResult {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<WebContainerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const instanceRef = useRef<WebContainer | null>(null);
   const devServerProcessRef = useRef<{ kill: () => void } | null>(null);
   const lastWrittenRef = useRef<Record<string, string>>({});
   const lastDevLogsRef = useRef<string>("");
+  const devProcessTokenRef = useRef(0);
 
   const bootAndMount = useCallback(async (tree: FileSystemTree) => {
     if (!isSupported) {
@@ -54,17 +59,23 @@ export function useWebContainer(): UseWebContainerResult {
     setPreviewUrl(null);
 
     try {
-      let instance = instanceRef.current;
+      let instance = sharedInstance;
       if (!instance) {
         setStatus("booting");
-        instance = await WebContainer.boot();
-        instanceRef.current = instance;
+        if (!sharedBootPromise) {
+          sharedBootPromise = WebContainer.boot();
+        }
+        instance = await sharedBootPromise;
+        sharedInstance = instance;
+        sharedBootPromise = null;
         instance.on("error", (e: { message: string }) => {
           setError(e.message);
           setStatus("error");
         });
       }
 
+      // Invalidate old dev-process exit handlers before killing.
+      devProcessTokenRef.current += 1;
       devServerProcessRef.current?.kill?.();
       devServerProcessRef.current = null;
 
@@ -81,6 +92,7 @@ export function useWebContainer(): UseWebContainerResult {
       setStatus("starting");
       const devProcess = await instance.spawn("npm", ["run", "dev"]);
       devServerProcessRef.current = devProcess;
+      const myToken = devProcessTokenRef.current;
 
       devProcess.output.pipeTo(
         new WritableStream({
@@ -94,6 +106,8 @@ export function useWebContainer(): UseWebContainerResult {
 
       // If the dev server dies, clear the preview URL so the iframe doesn't keep trying a dead port.
       devProcess.exit.then((code) => {
+        // Ignore exits from older processes we intentionally killed during remount/restart.
+        if (myToken !== devProcessTokenRef.current) return;
         if (code === 0) return;
         setPreviewUrl(null);
         setStatus("error");
@@ -127,7 +141,7 @@ export function useWebContainer(): UseWebContainerResult {
   }, []);
 
   const writeFiles = useCallback(async (files: Record<string, string>) => {
-    const instance = instanceRef.current;
+    const instance = sharedInstance;
     if (!instance) return;
 
     const last = lastWrittenRef.current;
@@ -148,7 +162,7 @@ export function useWebContainer(): UseWebContainerResult {
   useEffect(() => {
     return () => {
       devServerProcessRef.current?.kill?.();
-      instanceRef.current = null;
+      // Keep sharedInstance alive to avoid "Only a single WebContainer instance" errors on HMR/remount.
     };
   }, []);
 

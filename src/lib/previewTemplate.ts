@@ -5,6 +5,7 @@
 
 import type { FileSystemTree } from "@webcontainer/api";
 import { injectVisualEditScript } from "@/lib/previewInject";
+import { instrumentVeIds } from "@/lib/ast/instrumentVeIds";
 
 const BASE_PACKAGE_JSON = `{
   "name": "preview-app",
@@ -160,6 +161,10 @@ export function getProjectFiles(
   const appTsx = buildAppTsx(componentName, componentPath);
   const indexHtml = injectVisualEdit ? injectVisualEditScript(INDEX_HTML) : INDEX_HTML;
 
+  // Instrument preview TSX with stable element IDs for precise visual editing.
+  const instrumentedComponent = instrumentVeIds(componentCode, 1).code;
+  const instrumentedApp = instrumentVeIds(appTsx, 100000).code;
+
   const rawFiles: Record<string, { content: string; language: string }> = {
     "package.json": { content: BASE_PACKAGE_JSON, language: "json" },
     "vite.config.ts": { content: VITE_CONFIG, language: "typescript" },
@@ -167,9 +172,9 @@ export function getProjectFiles(
     "tailwind.config.js": { content: TAILWIND_CONFIG, language: "javascript" },
     "postcss.config.js": { content: POSTCSS_CONFIG, language: "javascript" },
     "src/main.tsx": { content: MAIN_TSX, language: "typescript" },
-    "src/App.tsx": { content: appTsx, language: "typescript" },
+    "src/App.tsx": { content: instrumentedApp, language: "typescript" },
     "src/index.css": { content: INDEX_CSS, language: "css" },
-    [`src/components/${componentName}.tsx`]: { content: componentCode, language: "typescript" },
+    [`src/components/${componentName}.tsx`]: { content: instrumentedComponent, language: "typescript" },
     [`src/components/${componentName}.css`]: { content: componentCss, language: "css" },
   };
 

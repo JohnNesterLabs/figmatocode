@@ -14,7 +14,7 @@ import {
   fetchFigmaNodeSummary,
 } from "@/lib/figma";
 import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
-import { generateComponentWithDeepSeek, editElementWithAI } from "@/lib/deepseek";
+import { generateComponentWithDeepSeek, editElementWithAI, editJsxNodeWithAI } from "@/lib/deepseek";
 import { useWebContainer } from "@/hooks/useWebContainer";
 import { useVisualEdit } from "@/hooks/useVisualEdit";
 import {
@@ -23,6 +23,8 @@ import {
   getPreviewPathToFileName,
   getProjectFiles,
 } from "@/lib/previewTemplate";
+import type { FileSystemTree } from "@webcontainer/api";
+import { extractJsxByVeId, replaceJsxByVeId } from "@/lib/ast/jsxByVeId";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -338,6 +340,8 @@ const Index = () => {
     writeFiles,
   } = useWebContainer();
 
+  const lastPreviewTreeRef = useRef<FileSystemTree | null>(null);
+
   // ── Visual Edit state ──
   const primaryComponentFileName = componentName
     ? `src/components/${componentName}.tsx`
@@ -469,6 +473,7 @@ const Index = () => {
         setFiles(projectFiles);
 
         const tree = buildPreviewProject(name, componentCode, componentCss, true); // inject visual edit
+        lastPreviewTreeRef.current = tree;
         bootAndMount(tree).catch(() => {
           // Error already set in hook
         });
@@ -478,6 +483,14 @@ const Index = () => {
     },
     [isWebContainerSupported, bootAndMount, exitEditMode]
   );
+
+  const restartLivePreview = useCallback(() => {
+    const tree = lastPreviewTreeRef.current;
+    if (!tree) return;
+    bootAndMount(tree).catch(() => {
+      // Error already set in hook
+    });
+  }, [bootAndMount]);
 
   // ── AI Edit handler ──
   const handleAIEdit = useCallback(
@@ -491,8 +504,17 @@ const Index = () => {
       );
       const files = filesRef.current;
       const selectedText = (selectedElement.textContent || "").trim();
+      const veId = (selectedElement.veId || "").trim();
 
       const pickBestFile = () => {
+        if (veId) {
+          const needle = `data-ve-id="${veId}"`;
+          for (const name of candidates) {
+            const f = files.find((ff) => ff.name === name);
+            if (!f) continue;
+            if (f.content.includes(needle)) return f;
+          }
+        }
         for (const name of candidates) {
           const f = files.find((ff) => ff.name === name);
           if (!f) continue;
@@ -508,6 +530,36 @@ const Index = () => {
       const file = pickBestFile();
       if (!file) throw new Error("No suitable file found for AI edit.");
 
+      // Preferred: veId-scoped AI edit (edit just the JSX node, then apply via AST)
+      if (veId) {
+        const jsxRes = extractJsxByVeId(file.content, veId);
+        if (jsxRes.ok) {
+          const updatedJsx = await editJsxNodeWithAI(prompt, {
+            veId,
+            selector: selectedElement.selector,
+            tagName: selectedElement.tagName,
+            innerHTML: selectedElement.innerHTML,
+            computedStyles: selectedElement.computedStyles,
+            currentJsx: jsxRes.jsx,
+          });
+          const replaced = replaceJsxByVeId(file.content, veId, updatedJsx);
+          if (replaced.ok) {
+            const patched = replaced.code;
+            setFiles((prev) =>
+              prev.map((f) => (f.name === file.name ? { ...f, content: patched } : f))
+            );
+            if (writeFiles) {
+              writeFiles({ [file.name]: patched }).catch(() => {
+                /* handled in hook */
+              });
+            }
+            return;
+          }
+          // If replacement failed, fall through to full-file AI edit
+        }
+      }
+
+      // Fallback: full-file replacement AI edit
       const newCode = await editElementWithAI(
         prompt,
         {
@@ -518,8 +570,6 @@ const Index = () => {
         },
         file.content
       );
-      // Apply back to the same file we sent to the model.
-      // (useVisualEdit.applyAIEditResult always targets the primary component file)
       const patched = newCode
         .replace(/^```(?:tsx?|jsx?|typescript|javascript)?\n?/, "")
         .replace(/\n?```$/, "")
@@ -570,6 +620,7 @@ const Index = () => {
                   status={webContainerStatus}
                   error={webContainerError}
                   isWebContainerSupported={isWebContainerSupported}
+                  onRestartLivePreview={restartLivePreview}
                   isVisualEditMode={isVisualEditMode}
                   onEnterEditMode={enterEditMode}
                   onExitEditMode={exitEditMode}

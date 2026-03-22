@@ -148,7 +148,10 @@ export const VISUAL_EDIT_SCRIPT = /* javascript */ `
   // Post element info to parent window
   function selectElement(target) {
     const rect = target.getBoundingClientRect();
+    const veHost = target.closest && target.closest('[data-ve-id]');
+    const veId = veHost ? veHost.getAttribute('data-ve-id') : null;
     const info = {
+      veId: veId || '',
       selector: buildSelector(target),
       tagName: target.tagName.toLowerCase(),
       className: typeof target.className === 'string' ? target.className : '',

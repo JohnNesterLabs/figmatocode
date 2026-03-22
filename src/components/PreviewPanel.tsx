@@ -11,6 +11,8 @@ interface PreviewPanelProps {
   status?: "idle" | "booting" | "mounting" | "installing" | "starting" | "ready" | "error";
   error?: string | null;
   isWebContainerSupported?: boolean;
+  /** Restart the WebContainer live preview (re-run bootAndMount) */
+  onRestartLivePreview?: () => void;
 
   // ── Visual Edit props ──
   isVisualEditMode?: boolean;
@@ -25,6 +27,7 @@ const PreviewPanel = ({
   status = "idle",
   error,
   isWebContainerSupported = true,
+  onRestartLivePreview,
   isVisualEditMode = false,
   onEnterEditMode,
   onExitEditMode,
@@ -39,6 +42,7 @@ const PreviewPanel = ({
   const isLoading = status === "booting" || status === "mounting" || status === "installing" || status === "starting";
   const hasError = status === "error" && error;
   const canVisualEdit = Boolean(useLivePreview) && !isLoading;
+  const canRestartLive = Boolean(isWebContainerSupported) && Boolean(onRestartLivePreview) && !isLoading;
 
   // ── postMessage bridge: send enable/disable to iframe ──
   const postToFrame = useCallback((msg: object) => {
@@ -139,11 +143,15 @@ const PreviewPanel = ({
           {(useLivePreview || useStaticFallback) && (
             <button
               onClick={() => {
+                if (hasError && canRestartLive) {
+                  onRestartLivePreview?.();
+                  return;
+                }
                 setIframeReady(false);
                 setFrameKey((prev) => prev + 1);
               }}
               className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-muted-foreground hover:text-foreground"
-              title="Reload preview"
+              title={hasError && canRestartLive ? "Restart live preview" : "Reload preview"}
             >
               <RefreshCw className="w-4 h-4" />
             </button>
@@ -185,6 +193,15 @@ const PreviewPanel = ({
           <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
             <p className="text-xs text-destructive truncate flex-1">{error}</p>
+            {canRestartLive && (
+              <button
+                onClick={() => onRestartLivePreview?.()}
+                className="text-[11px] px-2 py-1 rounded-md bg-destructive/15 text-destructive hover:bg-destructive/20 transition-colors"
+                title="Restart live preview"
+              >
+                Restart
+              </button>
+            )}
           </div>
         )}
 

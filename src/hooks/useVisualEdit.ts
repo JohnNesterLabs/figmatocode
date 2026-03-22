@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import { patchComponentStyle, patchComponentText, patchTextInStringLiterals, patchCssFileOverride, applyAIEdit, PatchOptions } from "@/lib/codePatcher";
+import { patchStyleByVeId, patchTextByVeId } from "@/lib/ast/patchByVeId";
 
 export interface SelectedElement {
+  veId?: string;
   selector: string;
   tagName: string;
   className: string;
@@ -113,6 +115,16 @@ export function useVisualEdit({
           continue;
         }
 
+        // Preferred: AST patch by stable veId (precise targeting)
+        if (selectedElement?.veId) {
+          const res = patchStyleByVeId(file.content, selectedElement.veId, prop, value);
+          if (res.ok && res.code !== file.content) {
+            setEditError(null);
+            onFileUpdate(file.fileName, res.code);
+            return;
+          }
+        }
+
         const patched = patchComponentStyle(file.content, prop, value, patchOptsRef.current);
         if (patched !== file.content) {
           setEditError(null);
@@ -150,6 +162,16 @@ export function useVisualEdit({
         return;
       }
       for (const file of files) {
+        // Preferred: AST patch by stable veId (precise targeting)
+        if (selectedElement?.veId) {
+          const res = patchTextByVeId(file.content, selectedElement.veId, newText);
+          if (res.ok && res.code !== file.content) {
+            setEditError(null);
+            onFileUpdate(file.fileName, res.code);
+            return;
+          }
+        }
+
         const patched = patchComponentText(
           file.content,
           selectedElement.tagName,

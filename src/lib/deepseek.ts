@@ -126,3 +126,76 @@ Rules:
   text = text.replace(/```(?:tsx?|jsx?|typescript|javascript)?\n?/, "").replace(/```\n?/, "").trim();
   return text;
 };
+
+/**
+ * Edit a specific JSX node (identified externally) using AI.
+ * Returns ONLY the updated JSX snippet (single JSX element), not the full file.
+ */
+export const editJsxNodeWithAI = async (
+  prompt: string,
+  context: {
+    veId: string;
+    selector: string;
+    tagName: string;
+    innerHTML: string;
+    computedStyles: Record<string, string>;
+    currentJsx: string;
+  }
+): Promise<string> => {
+  const token = getDeepSeekToken().trim();
+  if (!token) throw new Error("DeepSeek API Key is missing. Please add it in Settings.");
+
+  const userPrompt = `You are editing a specific JSX element inside a React+TypeScript codebase.
+
+TARGET ELEMENT:
+- veId: ${context.veId}
+- Tag: ${context.tagName}
+- CSS Selector (runtime): ${context.selector}
+- Current HTML (runtime): ${context.innerHTML.slice(0, 500)}
+- Current Styles (runtime): ${JSON.stringify(context.computedStyles, null, 2)}
+
+USER INSTRUCTION: "${prompt}"
+
+CURRENT JSX (source of truth):
+\`\`\`tsx
+${context.currentJsx}
+\`\`\`
+
+Return ONLY the updated JSX for this element (a single JSX element), preserving the same data-ve-id attribute.
+Rules:
+- Return ONLY JSX (no markdown fences, no explanation).
+- Keep data-ve-id unchanged.
+- Make the smallest change needed to satisfy the instruction.
+- Preserve any existing dynamic logic, conditions, and handlers unless the instruction requires changing them.`;
+
+  const res = await fetch(DEEPSEEK_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert React/TypeScript developer. You edit JSX precisely. Return ONLY a single JSX element, raw, no markdown.",
+        },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `DeepSeek API error: ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  let text = data.choices?.[0]?.message?.content ?? "";
+  text = text.replace(/```(?:tsx?|jsx?|typescript|javascript)?\n?/, "").replace(/```\n?/, "").trim();
+  return text;
+};
