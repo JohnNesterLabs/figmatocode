@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import SettingsSidebar from "@/components/SettingsSidebar";
 import AppSidebar from "@/components/AppSidebar";
 import HomeView from "@/components/HomeView";
@@ -26,8 +27,11 @@ import {
 } from "@/lib/previewTemplate";
 import type { FileSystemTree } from "@webcontainer/api";
 import { extractJsxByVeId, replaceJsxByVeId } from "@/lib/ast/jsxByVeId";
-import { FileCode, Eye } from "lucide-react";
+import { FileCode, Eye, MessageSquare, History } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import ChatPanel from "@/components/ChatPanel";
+import HistoryPanel from "@/components/HistoryPanel";
+import { appendHistory } from "@/lib/projectHistory";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -329,6 +333,8 @@ const Index = () => {
   const [error, setError] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
   const [activeView, setActiveView] = useState<"code" | "preview">("preview");
+  const [chatPanelView, setChatPanelView] = useState<"chat" | "history">("chat");
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const {
     projects,
@@ -537,6 +543,15 @@ const Index = () => {
           frameworks,
           name,
         });
+        const projId = activeProjectRef.current?.id ?? "";
+        appendHistory({
+          projectId: projId,
+          timestamp: new Date().toISOString(),
+          type: "conversion",
+          description: `Converted from Figma: ${name}`,
+          filesSnapshot: projectFiles,
+        });
+        setHistoryVersion((v) => v + 1);
         bootAndMount(tree).catch(() => {
           // Error already set in hook
         });
@@ -549,6 +564,14 @@ const Index = () => {
           frameworks,
           name,
         });
+        appendHistory({
+          projectId: activeProjectRef.current?.id ?? "",
+          timestamp: new Date().toISOString(),
+          type: "conversion",
+          description: `Converted from Figma: ${name}`,
+          filesSnapshot: generatedFiles,
+        });
+        setHistoryVersion((v) => v + 1);
       }
 
       setIsConverting(false);
@@ -673,6 +696,51 @@ const Index = () => {
     createProject();
   }, [createProject]);
 
+  const handleChatApplyEdits = useCallback(
+    (updates: Record<string, string>) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      const nextFiles = current.files.map((f) =>
+        f.name in updates ? { ...f, content: updates[f.name] } : f
+      );
+      const newFileNames = Object.keys(updates).filter((name) => !current.files.some((f) => f.name === name));
+      newFileNames.forEach((name) => nextFiles.push({ name, content: updates[name], language: "typescript" }));
+      updateActiveProject({ files: nextFiles });
+      if (writeFiles) writeFiles(updates).catch(() => {});
+    },
+    [updateActiveProject, writeFiles]
+  );
+
+  const handleChatHistoryEntry = useCallback(
+    (type: "ai_edit", description: string, filesSnapshot: CodeFile[]) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      appendHistory({
+        projectId: current.id,
+        timestamp: new Date().toISOString(),
+        type,
+        description,
+        filesSnapshot,
+      });
+      setHistoryVersion((v) => v + 1);
+    },
+    []
+  );
+
+  const handleHistoryRevert = useCallback(
+    (snapshot: CodeFile[]) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      updateActiveProject({ files: snapshot });
+      if (writeFiles) {
+        const toWrite: Record<string, string> = {};
+        snapshot.forEach((f) => { toWrite[f.name] = f.content; });
+        writeFiles(toWrite).catch(() => {});
+      }
+    },
+    [updateActiveProject, writeFiles]
+  );
+
   return (
     <div className="h-screen flex bg-background overflow-hidden">
       <AppSidebar
@@ -696,71 +764,106 @@ const Index = () => {
             componentName={componentName}
           />
         ) : (
-          <div className="h-full flex flex-col">
-            <Tabs
-              value={activeView}
-              onValueChange={(v) => setActiveView(v as "code" | "preview")}
-              className="h-full flex flex-col"
-            >
-              <div className="shrink-0 border-b border-border bg-card px-4 flex items-center justify-between">
-                <TabsList className="h-11 justify-start rounded-none border-0 bg-transparent p-0 gap-0">
-                  <TabsTrigger
-                    value="code"
-                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
-                  >
-                    <FileCode className="w-4 h-4 mr-2" />
-                    Code
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="preview"
-                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    Preview
-                  </TabsTrigger>
-                </TabsList>
-                <ThemeToggle />
-              </div>
-              <div className="flex-1 flex overflow-hidden min-h-0">
-                <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
-                  <CodePanel
-                    files={files}
-                    onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
-                    onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
-                  />
-                </TabsContent>
-                <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
-                  <div className="flex-1 overflow-hidden min-w-0">
-                    <PreviewPanel
-                      previewUrl={previewUrl}
-                      html={previewHtml}
-                      status={webContainerStatus}
-                      error={webContainerError}
-                      isWebContainerSupported={isWebContainerSupported}
-                      onRestartLivePreview={restartLivePreview}
-                      isVisualEditMode={isVisualEditMode}
-                      onEnterEditMode={enterEditMode}
-                      onExitEditMode={exitEditMode}
-                      onElementSelect={handleElementSelect}
-                    />
+          <ResizablePanelGroup direction="horizontal" className="flex-1">
+            <ResizablePanel defaultSize={70} minSize={40}>
+              <div className="h-full flex flex-col">
+                <Tabs
+                  value={activeView}
+                  onValueChange={(v) => setActiveView(v as "code" | "preview")}
+                  className="h-full flex flex-col"
+                >
+                  <div className="shrink-0 border-b border-border bg-card px-4 flex items-center justify-between">
+                    <TabsList className="h-11 justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                      <TabsTrigger
+                        value="code"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                      >
+                        <FileCode className="w-4 h-4 mr-2" />
+                        Code
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="preview"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        Preview
+                      </TabsTrigger>
+                    </TabsList>
+                    <ThemeToggle />
                   </div>
-                  {isVisualEditMode && selectedElement && (
-                    <VisualEditPanel
-                      element={selectedElement}
-                      componentCode={
-                        filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
-                      }
-                      onStyleChange={applyStyleEdit}
-                      onTextChange={applyTextEdit}
-                      onAIEdit={handleAIEdit}
-                      onClose={exitEditMode}
-                      editError={editError}
-                    />
-                  )}
-                </TabsContent>
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
+                      <CodePanel
+                        files={files}
+                        onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+                        onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
+                      />
+                    </TabsContent>
+                    <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
+                      <div className="flex-1 overflow-hidden min-w-0">
+                        <PreviewPanel
+                          previewUrl={previewUrl}
+                          html={previewHtml}
+                          status={webContainerStatus}
+                          error={webContainerError}
+                          isWebContainerSupported={isWebContainerSupported}
+                          onRestartLivePreview={restartLivePreview}
+                          isVisualEditMode={isVisualEditMode}
+                          onEnterEditMode={enterEditMode}
+                          onExitEditMode={exitEditMode}
+                          onElementSelect={handleElementSelect}
+                        />
+                      </div>
+                      {isVisualEditMode && selectedElement && (
+                        <VisualEditPanel
+                          element={selectedElement}
+                          componentCode={
+                            filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
+                          }
+                          onStyleChange={applyStyleEdit}
+                          onTextChange={applyTextEdit}
+                          onAIEdit={handleAIEdit}
+                          onClose={exitEditMode}
+                          editError={editError}
+                        />
+                      )}
+                    </TabsContent>
+                  </div>
+                </Tabs>
               </div>
-            </Tabs>
-          </div>
+            </ResizablePanel>
+            <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
+            <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+              <Tabs value={chatPanelView} onValueChange={(v) => setChatPanelView(v as "chat" | "history")} className="h-full flex flex-col">
+                <div className="shrink-0 border-b border-border bg-card px-2">
+                  <TabsList className="h-10 w-full justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                    <TabsTrigger value="chat" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none">
+                      <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+                      Chat
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none">
+                      <History className="w-3.5 h-3.5 mr-1.5" />
+                      History
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <div className="flex-1 overflow-hidden min-h-0">
+                  <TabsContent value="chat" className="h-full m-0 data-[state=inactive]:hidden">
+                    <ChatPanel
+                      files={files}
+                      componentName={componentName}
+                      projectId={activeProject?.id ?? ""}
+                      onApplyEdits={handleChatApplyEdits}
+                      onHistoryEntry={handleChatHistoryEntry}
+                    />
+                  </TabsContent>
+                  <TabsContent value="history" className="h-full m-0 data-[state=inactive]:hidden">
+                    <HistoryPanel key={`${activeProject?.id}-${historyVersion}`} projectId={activeProject?.id ?? ""} onRevert={handleHistoryRevert} />
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         )}
       </main>
       <PushToGitHubDialog
