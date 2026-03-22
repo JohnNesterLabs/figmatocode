@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import TopBar from "@/components/TopBar";
 import SettingsSidebar from "@/components/SettingsSidebar";
 import ImportPanel from "@/components/ImportPanel";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/previewTemplate";
 import type { FileSystemTree } from "@webcontainer/api";
 import { extractJsxByVeId, replaceJsxByVeId } from "@/lib/ast/jsxByVeId";
+import { FileCode, Eye } from "lucide-react";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -326,6 +328,7 @@ const Index = () => {
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
+  const [activeView, setActiveView] = useState<"code" | "preview">("preview");
 
   const {
     projects,
@@ -690,44 +693,70 @@ const Index = () => {
             />
           </ResizablePanel>
           <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
-          <ResizablePanel defaultSize={45} minSize={30}>
-            <CodePanel
-              files={files}
-              onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
-              onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
-            />
-          </ResizablePanel>
-          <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
-          <ResizablePanel defaultSize={30} minSize={20}>
-            <div className="h-full flex">
-              <div className="flex-1 overflow-hidden">
-                <PreviewPanel
-                  previewUrl={previewUrl}
-                  html={previewHtml}
-                  status={webContainerStatus}
-                  error={webContainerError}
-                  isWebContainerSupported={isWebContainerSupported}
-                  onRestartLivePreview={restartLivePreview}
-                  isVisualEditMode={isVisualEditMode}
-                  onEnterEditMode={enterEditMode}
-                  onExitEditMode={exitEditMode}
-                  onElementSelect={handleElementSelect}
-                />
-              </div>
-              {/* Visual Edit Panel — shown when element is selected */}
-              {isVisualEditMode && selectedElement && (
-                <VisualEditPanel
-                  element={selectedElement}
-                  componentCode={
-                    filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
-                  }
-                  onStyleChange={applyStyleEdit}
-                  onTextChange={applyTextEdit}
-                  onAIEdit={handleAIEdit}
-                  onClose={exitEditMode}
-                  editError={editError}
-                />
-              )}
+          <ResizablePanel defaultSize={75} minSize={50}>
+            <div className="h-full flex flex-col">
+              <Tabs
+                value={activeView}
+                onValueChange={(v) => setActiveView(v as "code" | "preview")}
+                className="h-full flex flex-col"
+              >
+                <div className="shrink-0 border-b border-border bg-card">
+                  <TabsList className="h-11 w-full justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                    <TabsTrigger
+                      value="code"
+                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                    >
+                      <FileCode className="w-4 h-4 mr-2" />
+                      Code
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="preview"
+                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      Preview
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <div className="flex-1 flex overflow-hidden min-h-0">
+                  <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
+                    <CodePanel
+                      files={files}
+                      onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+                      onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
+                    />
+                  </TabsContent>
+                  <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
+                    <div className="flex-1 overflow-hidden min-w-0">
+                      <PreviewPanel
+                        previewUrl={previewUrl}
+                        html={previewHtml}
+                        status={webContainerStatus}
+                        error={webContainerError}
+                        isWebContainerSupported={isWebContainerSupported}
+                        onRestartLivePreview={restartLivePreview}
+                        isVisualEditMode={isVisualEditMode}
+                        onEnterEditMode={enterEditMode}
+                        onExitEditMode={exitEditMode}
+                        onElementSelect={handleElementSelect}
+                      />
+                    </div>
+                    {isVisualEditMode && selectedElement && (
+                      <VisualEditPanel
+                        element={selectedElement}
+                        componentCode={
+                          filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
+                        }
+                        onStyleChange={applyStyleEdit}
+                        onTextChange={applyTextEdit}
+                        onAIEdit={handleAIEdit}
+                        onClose={exitEditMode}
+                        editError={editError}
+                      />
+                    )}
+                  </TabsContent>
+                </div>
+              </Tabs>
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
