@@ -262,11 +262,31 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
 <html>
 <head>
   <style>
+    :root, [data-preview-theme="dark"] {
+      --preview-bg: #0a0a0a;
+      --preview-fg: #f5f5f5;
+      --preview-muted: #a1a1aa;
+      --preview-card-bg: rgba(255,255,255,0.03);
+      --preview-card-border: rgba(255,255,255,0.08);
+      --preview-btn-secondary-bg: #1a1a1a;
+      --preview-btn-secondary-fg: #f5f5f5;
+      --preview-btn-secondary-border: #333;
+    }
+    [data-preview-theme="light"] {
+      --preview-bg: #ffffff;
+      --preview-fg: #18181b;
+      --preview-muted: #71717a;
+      --preview-card-bg: rgba(0,0,0,0.03);
+      --preview-card-border: rgba(0,0,0,0.08);
+      --preview-btn-secondary-bg: #f4f4f5;
+      --preview-btn-secondary-fg: #18181b;
+      --preview-btn-secondary-border: #d4d4d8;
+    }
     body {
       margin: 0;
       padding: 40px;
-      background: #0a0a0a;
-      color: #f5f5f5;
+      background: var(--preview-bg);
+      color: var(--preview-fg);
       font-family: 'Poppins', system-ui, sans-serif;
       display: flex;
       flex-direction: column;
@@ -277,7 +297,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: #a1a1aa;
+      color: var(--preview-muted);
       margin: 0;
     }
     .variant-grid {
@@ -288,8 +308,8 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       max-width: 600px;
     }
     .variant-card {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--preview-card-bg);
+      border: 1px solid var(--preview-card-border);
       border-radius: 12px;
       padding: 24px;
       display: flex;
@@ -299,7 +319,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
     }
     .variant-label {
       font-size: 10px;
-      color: #71717a;
+      color: var(--preview-muted);
       font-family: 'JetBrains Mono', monospace;
     }
     .btn {
@@ -312,7 +332,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       border: none;
     }
     .btn--primary { background: #ef3139; color: #fff; }
-    .btn--secondary { background: #1a1a1a; color: #f5f5f5; border: 1px solid #333; }
+    .btn--secondary { background: var(--preview-btn-secondary-bg); color: var(--preview-btn-secondary-fg); border: 1px solid var(--preview-btn-secondary-border); }
     .btn--primary:hover { background: #d42a31; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
@@ -322,6 +342,13 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
   <div class="variant-grid">
     ${cards.join("")}
   </div>
+  <script>
+    window.addEventListener("message", function(e) {
+      if (e.data && e.data.type === "preview-theme" && (e.data.theme === "light" || e.data.theme === "dark")) {
+        document.documentElement.dataset.previewTheme = e.data.theme;
+      }
+    });
+  <\/script>
 </body>
 </html>`;
 };

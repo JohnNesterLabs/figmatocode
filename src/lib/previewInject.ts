@@ -226,12 +226,32 @@ export const VISUAL_EDIT_SCRIPT = /* javascript */ `
 })();
 `;
 
+/** Theme listener: parent posts { type: "preview-theme", theme: "light"|"dark" } */
+const PREVIEW_THEME_SCRIPT = `
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "preview-theme" && (e.data.theme === "light" || e.data.theme === "dark")) {
+    document.documentElement.dataset.previewTheme = e.data.theme;
+  }
+});
+`;
+
 /**
  * Wrap the visual edit script into an index.html <script> tag injection.
  * Returns the HTML string with the script block appended before </body>.
  */
 export function injectVisualEditScript(indexHtml: string): string {
   const scriptTag = `<script>\n${VISUAL_EDIT_SCRIPT}\n<\/script>`;
+  if (indexHtml.includes('</body>')) {
+    return indexHtml.replace('</body>', `${scriptTag}\n</body>`);
+  }
+  return indexHtml + '\n' + scriptTag;
+}
+
+/**
+ * Inject preview theme listener so iframe responds to parent's theme toggle.
+ */
+export function injectPreviewThemeScript(indexHtml: string): string {
+  const scriptTag = `<script>${PREVIEW_THEME_SCRIPT}<\/script>`;
   if (indexHtml.includes('</body>')) {
     return indexHtml.replace('</body>', `${scriptTag}\n</body>`);
   }

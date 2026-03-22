@@ -4,7 +4,7 @@
  */
 
 import type { FileSystemTree } from "@webcontainer/api";
-import { injectVisualEditScript } from "@/lib/previewInject";
+import { injectVisualEditScript, injectPreviewThemeScript } from "@/lib/previewInject";
 import { instrumentVeIds } from "@/lib/ast/instrumentVeIds";
 
 const BASE_PACKAGE_JSON = `{
@@ -80,11 +80,22 @@ const INDEX_CSS = `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Theme-aware preview: vars set by parent via postMessage */
+:root, [data-preview-theme="dark"] {
+  --preview-bg: #0a0a0a;
+  --preview-fg: #f5f5f5;
+  --preview-muted: #a1a1aa;
+}
+[data-preview-theme="light"] {
+  --preview-bg: #ffffff;
+  --preview-fg: #18181b;
+  --preview-muted: #71717a;
+}
 body {
   margin: 0;
   padding: 40px;
-  background: #0a0a0a;
-  color: #f5f5f5;
+  background: var(--preview-bg);
+  color: var(--preview-fg);
   font-family: system-ui, sans-serif;
   min-height: 100vh;
 }
@@ -159,7 +170,8 @@ export function getProjectFiles(
 ): { name: string; content: string; language: string }[] {
   const componentPath = `./components/${componentName}`;
   const appTsx = buildAppTsx(componentName, componentPath);
-  const indexHtml = injectVisualEdit ? injectVisualEditScript(INDEX_HTML) : INDEX_HTML;
+  let indexHtml = injectVisualEdit ? injectVisualEditScript(INDEX_HTML) : INDEX_HTML;
+  indexHtml = injectPreviewThemeScript(indexHtml);
 
   // Instrument preview TSX with stable element IDs for precise visual editing.
   const instrumentedComponent = instrumentVeIds(componentCode, 1).code;

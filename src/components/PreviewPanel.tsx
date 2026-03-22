@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useTheme } from "next-themes";
 import { Eye, RefreshCw, Loader2, AlertCircle, Pencil, PencilOff } from "lucide-react";
 import { SelectedElement } from "@/hooks/useVisualEdit";
 
@@ -35,7 +36,9 @@ const PreviewPanel = ({
 }: PreviewPanelProps) => {
   const [frameKey, setFrameKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const staticIframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeReady, setIframeReady] = useState(false);
+  const { resolvedTheme } = useTheme();
 
   const useLivePreview = isWebContainerSupported && previewUrl;
   const useStaticFallback = html && !useLivePreview;
@@ -51,6 +54,12 @@ const PreviewPanel = ({
     frame.contentWindow.postMessage(msg, "*");
   }, []);
 
+  const postToAnyFrame = useCallback((msg: object) => {
+    [iframeRef.current, staticIframeRef.current].forEach((frame) => {
+      if (frame?.contentWindow) frame.contentWindow.postMessage(msg, "*");
+    });
+  }, []);
+
   // When visual edit mode changes, tell the iframe to enable/disable
   useEffect(() => {
     if (!iframeReady) return;
@@ -61,14 +70,21 @@ const PreviewPanel = ({
     }
   }, [isVisualEditMode, iframeReady, postToFrame]);
 
+  // Post theme to preview iframe so it matches app theme
+  useEffect(() => {
+    const theme = resolvedTheme === "light" ? "light" : "dark";
+    postToAnyFrame({ type: "preview-theme", theme });
+  }, [resolvedTheme, postToAnyFrame]);
+
   // Also re-send enable after iframe reloads
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true);
+    const theme = resolvedTheme === "light" ? "light" : "dark";
+    postToFrame({ type: "preview-theme", theme });
     if (isVisualEditMode) {
-      // Small delay to let the page initialize
       setTimeout(() => postToFrame({ type: "ve-enable" }), 200);
     }
-  }, [isVisualEditMode, postToFrame]);
+  }, [isVisualEditMode, resolvedTheme, postToFrame]);
 
   // ── Listen for messages from iframe ──
   useEffect(() => {
@@ -221,10 +237,15 @@ const PreviewPanel = ({
         {!isLoading && !useLivePreview && useStaticFallback && (
           <iframe
             key={frameKey}
+            ref={staticIframeRef}
             srcDoc={html}
             className="w-full h-full border-0"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             title="Component Preview"
+            onLoad={() => {
+              const theme = resolvedTheme === "light" ? "light" : "dark";
+              staticIframeRef.current?.contentWindow?.postMessage({ type: "preview-theme", theme }, "*");
+            }}
           />
         )}
 
