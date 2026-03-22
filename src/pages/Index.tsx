@@ -1,9 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import TopBar from "@/components/TopBar";
 import SettingsSidebar from "@/components/SettingsSidebar";
-import ImportPanel from "@/components/ImportPanel";
+import AppSidebar from "@/components/AppSidebar";
+import HomeView from "@/components/HomeView";
 import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
 import PushToGitHubDialog from "@/components/PushToGitHubDialog";
@@ -28,6 +27,7 @@ import {
 import type { FileSystemTree } from "@webcontainer/api";
 import { extractJsxByVeId, replaceJsxByVeId } from "@/lib/ast/jsxByVeId";
 import { FileCode, Eye } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
@@ -461,7 +461,7 @@ const Index = () => {
     async (url: string, frameworks: string[]) => {
       const token = getFigmaToken();
       if (!token) {
-        setError("Please add your Figma Access Token in Settings first.");
+        setError("Please add your Figma Access Token in the sidebar Configuration first.");
         return;
       }
 
@@ -668,99 +668,101 @@ const Index = () => {
     [selectedElement, primaryComponentFileName, writeFiles, updateActiveProject]
   );
 
+  const showHomeView = !activeProject || activeProject.files.length === 0;
+  const handleNavigateHome = useCallback(() => {
+    createProject();
+  }, [createProject]);
+
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <TopBar
+    <div className="h-screen flex bg-background overflow-hidden">
+      <AppSidebar
         projects={projects}
         activeProject={activeProject}
         onSelectProject={(id) => setActiveProject(id)}
         onCreateProject={createProject}
-        onDeleteProject={deleteProject}
+        onNavigateHome={handleNavigateHome}
+        onOpenSettings={() => setSidebarOpen(true)}
       />
-      <div className="flex-1 flex overflow-hidden">
-        {sidebarOpen && (
-          <SettingsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        )}
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-            <ImportPanel
-              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-              onConvert={runConversion}
-              steps={steps}
-              isConverting={isConverting}
-              error={error}
-              componentName={componentName}
-            />
-          </ResizablePanel>
-          <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
-          <ResizablePanel defaultSize={75} minSize={50}>
-            <div className="h-full flex flex-col">
-              <Tabs
-                value={activeView}
-                onValueChange={(v) => setActiveView(v as "code" | "preview")}
-                className="h-full flex flex-col"
-              >
-                <div className="shrink-0 border-b border-border bg-card">
-                  <TabsList className="h-11 w-full justify-start rounded-none border-0 bg-transparent p-0 gap-0">
-                    <TabsTrigger
-                      value="code"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
-                    >
-                      <FileCode className="w-4 h-4 mr-2" />
-                      Code
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="preview"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
-                    >
-                      <Eye className="w-4 h-4 mr-2" />
-                      Preview
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
-                <div className="flex-1 flex overflow-hidden min-h-0">
-                  <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
-                    <CodePanel
-                      files={files}
-                      onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
-                      onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
+      {sidebarOpen && (
+        <SettingsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      )}
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {showHomeView ? (
+          <HomeView
+            onConvert={runConversion}
+            steps={steps}
+            isConverting={isConverting}
+            error={error}
+            componentName={componentName}
+          />
+        ) : (
+          <div className="h-full flex flex-col">
+            <Tabs
+              value={activeView}
+              onValueChange={(v) => setActiveView(v as "code" | "preview")}
+              className="h-full flex flex-col"
+            >
+              <div className="shrink-0 border-b border-border bg-card px-4 flex items-center justify-between">
+                <TabsList className="h-11 justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                  <TabsTrigger
+                    value="code"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                  >
+                    <FileCode className="w-4 h-4 mr-2" />
+                    Code
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="preview"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Preview
+                  </TabsTrigger>
+                </TabsList>
+                <ThemeToggle />
+              </div>
+              <div className="flex-1 flex overflow-hidden min-h-0">
+                <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
+                  <CodePanel
+                    files={files}
+                    onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+                    onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
+                  />
+                </TabsContent>
+                <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
+                  <div className="flex-1 overflow-hidden min-w-0">
+                    <PreviewPanel
+                      previewUrl={previewUrl}
+                      html={previewHtml}
+                      status={webContainerStatus}
+                      error={webContainerError}
+                      isWebContainerSupported={isWebContainerSupported}
+                      onRestartLivePreview={restartLivePreview}
+                      isVisualEditMode={isVisualEditMode}
+                      onEnterEditMode={enterEditMode}
+                      onExitEditMode={exitEditMode}
+                      onElementSelect={handleElementSelect}
                     />
-                  </TabsContent>
-                  <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
-                    <div className="flex-1 overflow-hidden min-w-0">
-                      <PreviewPanel
-                        previewUrl={previewUrl}
-                        html={previewHtml}
-                        status={webContainerStatus}
-                        error={webContainerError}
-                        isWebContainerSupported={isWebContainerSupported}
-                        onRestartLivePreview={restartLivePreview}
-                        isVisualEditMode={isVisualEditMode}
-                        onEnterEditMode={enterEditMode}
-                        onExitEditMode={exitEditMode}
-                        onElementSelect={handleElementSelect}
-                      />
-                    </div>
-                    {isVisualEditMode && selectedElement && (
-                      <VisualEditPanel
-                        element={selectedElement}
-                        componentCode={
-                          filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
-                        }
-                        onStyleChange={applyStyleEdit}
-                        onTextChange={applyTextEdit}
-                        onAIEdit={handleAIEdit}
-                        onClose={exitEditMode}
-                        editError={editError}
-                      />
-                    )}
-                  </TabsContent>
-                </div>
-              </Tabs>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+                  </div>
+                  {isVisualEditMode && selectedElement && (
+                    <VisualEditPanel
+                      element={selectedElement}
+                      componentCode={
+                        filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
+                      }
+                      onStyleChange={applyStyleEdit}
+                      onTextChange={applyTextEdit}
+                      onAIEdit={handleAIEdit}
+                      onClose={exitEditMode}
+                      editError={editError}
+                    />
+                  )}
+                </TabsContent>
+              </div>
+            </Tabs>
+          </div>
+        )}
+      </main>
       <PushToGitHubDialog
         open={githubDialogOpen}
         onOpenChange={setGithubDialogOpen}
