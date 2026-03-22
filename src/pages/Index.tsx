@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import TopBar from "@/components/TopBar";
 import SettingsSidebar from "@/components/SettingsSidebar";
@@ -17,6 +17,7 @@ import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
 import { generateComponentWithDeepSeek, editElementWithAI, editJsxNodeWithAI } from "@/lib/deepseek";
 import { useWebContainer } from "@/hooks/useWebContainer";
 import { useVisualEdit } from "@/hooks/useVisualEdit";
+import { useProjects } from "@/hooks/useProjects";
 import {
   buildPreviewProject,
   extractReactPreviewFiles,
@@ -324,12 +325,25 @@ const Index = () => {
   const [steps, setSteps] = useState<ConversionStep[]>([]);
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [componentName, setComponentName] = useState<string | null>(null);
-  const [files, setFiles] = useState<CodeFile[]>([]);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
+
+  const {
+    projects,
+    activeProject,
+    setActiveProject,
+    createProject,
+    updateActiveProject,
+    deleteProject,
+  } = useProjects();
+
+  const files = activeProject?.files ?? [];
+  const componentName = activeProject?.componentName ?? null;
+  const previewHtml = activeProject?.previewHtml ?? null;
+
   const filesRef = useRef<CodeFile[]>([]);
   filesRef.current = files;
+  const activeProjectRef = useRef(activeProject);
+  activeProjectRef.current = activeProject;
 
   const {
     previewUrl,
@@ -341,6 +355,34 @@ const Index = () => {
   } = useWebContainer();
 
   const lastPreviewTreeRef = useRef<FileSystemTree | null>(null);
+
+  // Remount WebContainer when switching projects (by id, not on in-place updates)
+  const activeProjectId = activeProject?.id ?? null;
+  useEffect(() => {
+    if (!activeProject || !activeProjectId) return;
+
+    if (
+      isWebContainerSupported &&
+      activeProject.componentName &&
+      activeProject.files.length > 0
+    ) {
+      const { componentCode, componentCss } = extractReactPreviewFiles(
+        activeProject.files.map((f) => ({ name: f.name, content: f.content })),
+        activeProject.componentName
+      );
+      const tree = buildPreviewProject(
+        activeProject.componentName,
+        componentCode,
+        componentCss,
+        true
+      );
+      lastPreviewTreeRef.current = tree;
+      bootAndMount(tree).catch(() => {});
+    } else {
+      lastPreviewTreeRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
 
   // ── Visual Edit state ──
   const primaryComponentFileName = componentName
@@ -365,22 +407,26 @@ const Index = () => {
       return f?.content;
     },
     onFileUpdate: (fileName, newContent) => {
-      // Update local files state (so Monaco reflects the change)
-      setFiles((prev) =>
-        prev.map((f) => (f.name === fileName ? { ...f, content: newContent } : f))
+      const current = activeProjectRef.current;
+      if (!current) return;
+      const nextFiles = current.files.map((f) =>
+        f.name === fileName ? { ...f, content: newContent } : f
       );
-      // Also write to WebContainer for hot-reload
+      updateActiveProject({ files: nextFiles });
       if (writeFiles) {
         writeFiles({ [fileName]: newContent }).catch(() => {/* handled in hook */ });
       }
     },
   });
 
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const onEditorChange = useCallback(
     (contents: Record<string, string>) => {
       const name = componentName;
       const currentFiles = filesRef.current;
-      if (!name || !currentFiles.length || !writeFiles) return;
+      if (!name || !currentFiles.length) return;
+
       const pathToFileName = getPreviewPathToFileName(currentFiles, name);
       const toWrite: Record<string, string> = {};
       for (const [wcPath, codeFileName] of Object.entries(pathToFileName)) {
@@ -388,9 +434,24 @@ const Index = () => {
         const content = contents[codeFileName] ?? file?.content;
         if (content) toWrite[wcPath] = content;
       }
-      if (Object.keys(toWrite).length > 0) writeFiles(toWrite);
+      if (Object.keys(toWrite).length > 0 && writeFiles) {
+        writeFiles(toWrite).catch(() => {});
+      }
+
+      // Debounced save to project (persist to localStorage)
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+      saveDebounceRef.current = setTimeout(() => {
+        saveDebounceRef.current = null;
+        const current = activeProjectRef.current;
+        if (!current) return;
+        const merged = current.files.map((f) => ({
+          ...f,
+          content: contents[f.name] ?? f.content,
+        }));
+        updateActiveProject({ files: merged });
+      }, 1500);
     },
-    [componentName, writeFiles]
+    [componentName, writeFiles, updateActiveProject]
   );
 
   const runConversion = useCallback(
@@ -403,9 +464,6 @@ const Index = () => {
 
       setError(null);
       setIsConverting(true);
-      setComponentName(null);
-      setFiles([]);
-      setPreviewHtml(null);
       exitEditMode(); // Reset visual edit on new conversion
 
       let name = extractComponentNameFromUrl(url);
@@ -458,30 +516,41 @@ const Index = () => {
         return;
       }
 
-      setFiles(generatedFiles);
-      setPreviewHtml(generatePreviewHtml(name, variants));
-      setComponentName(name);
+      const html = generatePreviewHtml(name, variants);
 
       if (isWebContainerSupported && frameworks.includes("react")) {
         const { componentCode, componentCss } = extractReactPreviewFiles(
           generatedFiles.map((f) => ({ name: f.name, content: f.content })),
           name
         );
-
-        // Populate Explorer with full Vite project files
-        const projectFiles = getProjectFiles(name, componentCode, componentCss, true); // inject visual edit
-        setFiles(projectFiles);
-
-        const tree = buildPreviewProject(name, componentCode, componentCss, true); // inject visual edit
+        const projectFiles = getProjectFiles(name, componentCode, componentCss, true);
+        const tree = buildPreviewProject(name, componentCode, componentCss, true);
         lastPreviewTreeRef.current = tree;
+        updateActiveProject({
+          files: projectFiles,
+          componentName: name,
+          previewHtml: html,
+          figmaUrl: url,
+          frameworks,
+          name,
+        });
         bootAndMount(tree).catch(() => {
           // Error already set in hook
+        });
+      } else {
+        updateActiveProject({
+          files: generatedFiles,
+          componentName: name,
+          previewHtml: html,
+          figmaUrl: url,
+          frameworks,
+          name,
         });
       }
 
       setIsConverting(false);
     },
-    [isWebContainerSupported, bootAndMount, exitEditMode]
+    [isWebContainerSupported, bootAndMount, exitEditMode, updateActiveProject]
   );
 
   const restartLivePreview = useCallback(() => {
@@ -545,9 +614,14 @@ const Index = () => {
           const replaced = replaceJsxByVeId(file.content, veId, updatedJsx);
           if (replaced.ok) {
             const patched = replaced.code;
-            setFiles((prev) =>
-              prev.map((f) => (f.name === file.name ? { ...f, content: patched } : f))
-            );
+            const current = activeProjectRef.current;
+            if (current) {
+              updateActiveProject({
+                files: current.files.map((f) =>
+                  f.name === file.name ? { ...f, content: patched } : f
+                ),
+              });
+            }
             if (writeFiles) {
               writeFiles({ [file.name]: patched }).catch(() => {
                 /* handled in hook */
@@ -574,19 +648,32 @@ const Index = () => {
         .replace(/^```(?:tsx?|jsx?|typescript|javascript)?\n?/, "")
         .replace(/\n?```$/, "")
         .trim();
-      setFiles((prev) => prev.map((f) => (f.name === file.name ? { ...f, content: patched } : f)));
+      const current = activeProjectRef.current;
+      if (current) {
+        updateActiveProject({
+          files: current.files.map((f) =>
+            f.name === file.name ? { ...f, content: patched } : f
+          ),
+        });
+      }
       if (writeFiles) {
         writeFiles({ [file.name]: patched }).catch(() => {
           /* handled in hook */
         });
       }
     },
-    [selectedElement, primaryComponentFileName, writeFiles]
+    [selectedElement, primaryComponentFileName, writeFiles, updateActiveProject]
   );
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <TopBar />
+      <TopBar
+        projects={projects}
+        activeProject={activeProject}
+        onSelectProject={(id) => setActiveProject(id)}
+        onCreateProject={createProject}
+        onDeleteProject={deleteProject}
+      />
       <div className="flex-1 flex overflow-hidden">
         {sidebarOpen && (
           <SettingsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
