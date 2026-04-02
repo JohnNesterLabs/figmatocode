@@ -12,7 +12,9 @@ import { ConversionStep } from "@/components/ConversionProgress";
 import {
   extractComponentNameFromUrl,
   fetchFigmaNodeData,
-  fetchFigmaNodeSummary,
+  buildFigmaNodeSummaryFromRoot,
+  getPreferredFigmaNode,
+  simplifyFigmaForLLM,
 } from "@/lib/figma";
 import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
 import { generateComponentWithDeepSeek, editElementWithAI, editJsxNodeWithAI } from "@/lib/deepseek";
@@ -532,13 +534,31 @@ const Index = () => {
 
       try {
         const rawFigmaData = await fetchFigmaNodeData(url, token);
-        const nodeSummary = await fetchFigmaNodeSummary(url, token);
+        const nodeSummary = buildFigmaNodeSummaryFromRoot(url, rawFigmaData);
         name = nodeSummary.componentName;
         variants = nodeSummary.variantLabels;
 
         if (deepseekToken) {
           console.log("Using DeepSeek for generation...");
-          const realCode = await generateComponentWithDeepSeek(name, rawFigmaData);
+          const preferredNode = getPreferredFigmaNode(rawFigmaData) ?? rawFigmaData;
+          let figmaForLLM = simplifyFigmaForLLM(preferredNode);
+          let serialized = JSON.stringify(figmaForLLM);
+          if (serialized.length > 380_000) {
+            figmaForLLM = simplifyFigmaForLLM(preferredNode, {
+              maxDepth: 18,
+              maxNodes: 350,
+              maxTextChars: 200,
+              maxChildrenPerNode: 35,
+            });
+            serialized = JSON.stringify(figmaForLLM);
+          }
+          if (serialized.length > 450_000) {
+            throw new Error(
+              "This Figma selection is still too large for the AI context limit. Use a link that includes " +
+                "?node-id=… pointed at a single frame or component (in Figma: right-click → Copy link to selection), or narrow your selection."
+            );
+          }
+          const realCode = await generateComponentWithDeepSeek(name, figmaForLLM);
           generatedFiles = [
             { name: `${name}.tsx`, language: "typescript", content: realCode },
             { name: `${name}.css`, language: "css", content: `/* Stylings bundled in TSX via Tailwind */` }

@@ -26,9 +26,16 @@ export const generateComponentWithDeepSeek = async (
   const token = getDeepSeekToken().trim();
   if (!token) throw new Error("DeepSeek API Key is missing. Please add it in Settings.");
 
+  const figmaJson = JSON.stringify(figmaData);
+  if (figmaJson.length > 480_000) {
+    throw new Error(
+      "Figma payload is too large for the AI API. Use a Figma URL with ?node-id=… on one frame or component only."
+    );
+  }
+
   const prompt = `
-Generate a React component named "${componentName}" based on this Figma JSON data:
-${JSON.stringify(figmaData, null, 2)}
+Generate a React component named "${componentName}" based on this Figma JSON data (structure-only excerpt for context limits):
+${figmaJson}
 
 Requirements:
 - Target: React 18 + TypeScript + Tailwind CSS. Output must be valid TypeScript that compiles (use \`type\` and \`interface\` keywords correctly).
@@ -53,7 +60,21 @@ Requirements:
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(err || `DeepSeek API error: ${res.status}`);
+    let message = err || `DeepSeek API error: ${res.status}`;
+    try {
+      const parsed = JSON.parse(err) as { error?: { message?: string } };
+      const apiMsg = parsed?.error?.message;
+      if (apiMsg && /context length|maximum context|tokens/i.test(apiMsg)) {
+        message =
+          "The request exceeded the model's context limit. Your Figma frame or file may be very large — in Figma use Right-click → Copy/Paste as → Copy link to selection so the URL includes node-id, and target one component or small frame.\n\n" +
+          apiMsg;
+      } else if (apiMsg) {
+        message = apiMsg;
+      }
+    } catch {
+      /* keep raw message */
+    }
+    throw new Error(message);
   }
 
   const data = (await res.json()) as {
