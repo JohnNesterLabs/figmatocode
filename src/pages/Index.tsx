@@ -1,31 +1,53 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import TopBar from "@/components/TopBar";
 import SettingsSidebar from "@/components/SettingsSidebar";
-import ImportPanel from "@/components/ImportPanel";
+import AppSidebar from "@/components/AppSidebar";
+import HomeView from "@/components/HomeView";
 import CodePanel, { CodeFile } from "@/components/CodePanel";
 import PreviewPanel from "@/components/PreviewPanel";
 import PushToGitHubDialog from "@/components/PushToGitHubDialog";
+import VisualEditPanel from "@/components/VisualEditPanel";
 import { ConversionStep } from "@/components/ConversionProgress";
 import {
   extractComponentNameFromUrl,
-  fetchFigmaNodeSummary,
+  fetchFigmaNodeData,
+  buildFigmaNodeSummaryFromRoot,
+  getPreferredFigmaNode,
+  simplifyFigmaForLLM,
 } from "@/lib/figma";
-import { getFigmaToken } from "@/lib/tokenStorage";
+import { getFigmaToken, getDeepSeekToken } from "@/lib/tokenStorage";
+import { generateComponentWithDeepSeek, editElementWithAI, editJsxNodeWithAI } from "@/lib/deepseek";
+import { useWebContainer } from "@/hooks/useWebContainer";
+import { useVisualEdit } from "@/hooks/useVisualEdit";
+import { useProjects } from "@/hooks/useProjects";
+import {
+  buildPreviewProject,
+  extractReactPreviewFiles,
+  getPreviewPathToFileName,
+  getProjectFiles,
+} from "@/lib/previewTemplate";
+import type { FileSystemTree } from "@webcontainer/api";
+import { extractJsxByVeId, replaceJsxByVeId } from "@/lib/ast/jsxByVeId";
+import { FileCode, Eye, MessageSquare, History } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
+import ChatPanel from "@/components/ChatPanel";
+import HistoryPanel from "@/components/HistoryPanel";
+import { appendHistory } from "@/lib/projectHistory";
 
 const MOCK_STEPS: Omit<ConversionStep, "status">[] = [
   { id: "fetch", label: "Fetching from Figma API", detail: "Downloading design data..." },
   { id: "parse", label: "Parsing variants & layers" },
   { id: "assets", label: "Exporting assets (SVG/PNG)" },
-  { id: "generate", label: "Generating Mitosis component" },
-  { id: "compile", label: "Compiling to target frameworks" },
+  { id: "generate", label: "AI-driven component generation" },
+  { id: "compile", label: "Optimizing code & accessibility" },
   { id: "css", label: "Injecting CSS & tokens" },
 ];
 
 const generateMockCode = (name: string, frameworks: string[], variants: string[]): CodeFile[] => {
   const files: CodeFile[] = [];
-  const primaryLabel = variants[0] || "Default";
-  const secondaryLabel = variants[1] || primaryLabel;
+  const primaryLabel = (variants[0] || "Default").replace(/"/g, '\\"').replace(/\n/g, ' ');
+  const secondaryLabel = (variants[1] || primaryLabel).replace(/"/g, '\\"').replace(/\n/g, ' ');
 
   files.push({
     name: `${name}.lite.tsx`,
@@ -242,11 +264,31 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
 <html>
 <head>
   <style>
+    :root, [data-preview-theme="dark"] {
+      --preview-bg: #0a0a0a;
+      --preview-fg: #f5f5f5;
+      --preview-muted: #a1a1aa;
+      --preview-card-bg: rgba(255,255,255,0.03);
+      --preview-card-border: rgba(255,255,255,0.08);
+      --preview-btn-secondary-bg: #1a1a1a;
+      --preview-btn-secondary-fg: #f5f5f5;
+      --preview-btn-secondary-border: #333;
+    }
+    [data-preview-theme="light"] {
+      --preview-bg: #ffffff;
+      --preview-fg: #18181b;
+      --preview-muted: #71717a;
+      --preview-card-bg: rgba(0,0,0,0.03);
+      --preview-card-border: rgba(0,0,0,0.08);
+      --preview-btn-secondary-bg: #f4f4f5;
+      --preview-btn-secondary-fg: #18181b;
+      --preview-btn-secondary-border: #d4d4d8;
+    }
     body {
       margin: 0;
       padding: 40px;
-      background: #0a0a0a;
-      color: #f5f5f5;
+      background: var(--preview-bg);
+      color: var(--preview-fg);
       font-family: 'Poppins', system-ui, sans-serif;
       display: flex;
       flex-direction: column;
@@ -257,7 +299,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: #a1a1aa;
+      color: var(--preview-muted);
       margin: 0;
     }
     .variant-grid {
@@ -268,8 +310,8 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       max-width: 600px;
     }
     .variant-card {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--preview-card-bg);
+      border: 1px solid var(--preview-card-border);
       border-radius: 12px;
       padding: 24px;
       display: flex;
@@ -279,7 +321,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
     }
     .variant-label {
       font-size: 10px;
-      color: #71717a;
+      color: var(--preview-muted);
       font-family: 'JetBrains Mono', monospace;
     }
     .btn {
@@ -292,7 +334,7 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
       border: none;
     }
     .btn--primary { background: #ef3139; color: #fff; }
-    .btn--secondary { background: #1a1a1a; color: #f5f5f5; border: 1px solid #333; }
+    .btn--secondary { background: var(--preview-btn-secondary-bg); color: var(--preview-btn-secondary-fg); border: 1px solid var(--preview-btn-secondary-border); }
     .btn--primary:hover { background: #d42a31; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
@@ -302,6 +344,13 @@ const generatePreviewHtml = (name: string, variants: string[]): string => {
   <div class="variant-grid">
     ${cards.join("")}
   </div>
+  <script>
+    window.addEventListener("message", function(e) {
+      if (e.data && e.data.type === "preview-theme" && (e.data.theme === "light" || e.data.theme === "dark")) {
+        document.documentElement.dataset.previewTheme = e.data.theme;
+      }
+    });
+  <\/script>
 </body>
 </html>`;
 };
@@ -311,24 +360,149 @@ const Index = () => {
   const [steps, setSteps] = useState<ConversionStep[]>([]);
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [componentName, setComponentName] = useState<string | null>(null);
-  const [files, setFiles] = useState<CodeFile[]>([]);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
+  const [activeView, setActiveView] = useState<"code" | "preview">("preview");
+  const [chatPanelView, setChatPanelView] = useState<"chat" | "history">("chat");
+  const [historyVersion, setHistoryVersion] = useState(0);
+
+  const {
+    projects,
+    activeProject,
+    setActiveProject,
+    createProject,
+    updateActiveProject,
+    deleteProject,
+  } = useProjects();
+
+  const files = activeProject?.files ?? [];
+  const componentName = activeProject?.componentName ?? null;
+  const previewHtml = activeProject?.previewHtml ?? null;
+
+  const filesRef = useRef<CodeFile[]>([]);
+  filesRef.current = files;
+  const activeProjectRef = useRef(activeProject);
+  activeProjectRef.current = activeProject;
+
+  const {
+    previewUrl,
+    status: webContainerStatus,
+    error: webContainerError,
+    isSupported: isWebContainerSupported,
+    bootAndMount,
+    writeFiles,
+  } = useWebContainer();
+
+  const lastPreviewTreeRef = useRef<FileSystemTree | null>(null);
+
+  // Remount WebContainer when switching projects (by id, not on in-place updates)
+  const activeProjectId = activeProject?.id ?? null;
+  useEffect(() => {
+    if (!activeProject || !activeProjectId) return;
+
+    if (
+      isWebContainerSupported &&
+      activeProject.componentName &&
+      activeProject.files.length > 0
+    ) {
+      const { componentCode, componentCss } = extractReactPreviewFiles(
+        activeProject.files.map((f) => ({ name: f.name, content: f.content })),
+        activeProject.componentName
+      );
+      const tree = buildPreviewProject(
+        activeProject.componentName,
+        componentCode,
+        componentCss,
+        true
+      );
+      lastPreviewTreeRef.current = tree;
+      bootAndMount(tree).catch(() => {});
+    } else {
+      lastPreviewTreeRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
+
+  // ── Visual Edit state ──
+  const primaryComponentFileName = componentName
+    ? `src/components/${componentName}.tsx`
+    : null;
+
+  const {
+    isVisualEditMode,
+    selectedElement,
+    editError,
+    enterEditMode,
+    exitEditMode,
+    handleElementSelect,
+    applyStyleEdit,
+    applyTextEdit,
+    applyAIEditResult,
+  } = useVisualEdit({
+    componentFileName: primaryComponentFileName,
+    fallbackFileNames: ["src/App.tsx", "src/index.css"],
+    getFileContent: (name) => {
+      const f = filesRef.current.find((f) => f.name === name);
+      return f?.content;
+    },
+    onFileUpdate: (fileName, newContent) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      const nextFiles = current.files.map((f) =>
+        f.name === fileName ? { ...f, content: newContent } : f
+      );
+      updateActiveProject({ files: nextFiles });
+      if (writeFiles) {
+        writeFiles({ [fileName]: newContent }).catch(() => {/* handled in hook */ });
+      }
+    },
+  });
+
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onEditorChange = useCallback(
+    (contents: Record<string, string>) => {
+      const name = componentName;
+      const currentFiles = filesRef.current;
+      if (!name || !currentFiles.length) return;
+
+      const pathToFileName = getPreviewPathToFileName(currentFiles, name);
+      const toWrite: Record<string, string> = {};
+      for (const [wcPath, codeFileName] of Object.entries(pathToFileName)) {
+        const file = currentFiles.find((f) => f.name === codeFileName);
+        const content = contents[codeFileName] ?? file?.content;
+        if (content) toWrite[wcPath] = content;
+      }
+      if (Object.keys(toWrite).length > 0 && writeFiles) {
+        writeFiles(toWrite).catch(() => {});
+      }
+
+      // Debounced save to project (persist to localStorage)
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+      saveDebounceRef.current = setTimeout(() => {
+        saveDebounceRef.current = null;
+        const current = activeProjectRef.current;
+        if (!current) return;
+        const merged = current.files.map((f) => ({
+          ...f,
+          content: contents[f.name] ?? f.content,
+        }));
+        updateActiveProject({ files: merged });
+      }, 1500);
+    },
+    [componentName, writeFiles, updateActiveProject]
+  );
 
   const runConversion = useCallback(
     async (url: string, frameworks: string[]) => {
       const token = getFigmaToken();
       if (!token) {
-        setError("Please add your Figma Access Token in Settings first.");
+        setError("Please add your Figma Access Token in the sidebar Configuration first.");
         return;
       }
 
       setError(null);
       setIsConverting(true);
-      setComponentName(null);
-      setFiles([]);
-      setPreviewHtml(null);
+      exitEditMode(); // Reset visual edit on new conversion
 
       let name = extractComponentNameFromUrl(url);
       let variants: string[] = ["Default"];
@@ -355,56 +529,390 @@ const Index = () => {
       await new Promise((r) => setTimeout(r, 500));
       setSteps([]);
 
+      let generatedFiles: CodeFile[] = [];
+      const deepseekToken = getDeepSeekToken();
+
       try {
-        const nodeSummary = await fetchFigmaNodeSummary(url, token);
+        const rawFigmaData = await fetchFigmaNodeData(url, token);
+        const nodeSummary = buildFigmaNodeSummaryFromRoot(url, rawFigmaData);
         name = nodeSummary.componentName;
         variants = nodeSummary.variantLabels;
+
+        if (deepseekToken) {
+          console.log("Using DeepSeek for generation...");
+          const preferredNode = getPreferredFigmaNode(rawFigmaData) ?? rawFigmaData;
+          let figmaForLLM = simplifyFigmaForLLM(preferredNode);
+          let serialized = JSON.stringify(figmaForLLM);
+          if (serialized.length > 380_000) {
+            figmaForLLM = simplifyFigmaForLLM(preferredNode, {
+              maxDepth: 18,
+              maxNodes: 350,
+              maxTextChars: 200,
+              maxChildrenPerNode: 35,
+            });
+            serialized = JSON.stringify(figmaForLLM);
+          }
+          if (serialized.length > 450_000) {
+            throw new Error(
+              "This Figma selection is still too large for the AI context limit. Use a link that includes " +
+                "?node-id=… pointed at a single frame or component (in Figma: right-click → Copy link to selection), or narrow your selection."
+            );
+          }
+          const realCode = await generateComponentWithDeepSeek(name, figmaForLLM);
+          generatedFiles = [
+            { name: `${name}.tsx`, language: "typescript", content: realCode },
+            { name: `${name}.css`, language: "css", content: `/* Stylings bundled in TSX via Tailwind */` }
+          ];
+        } else {
+          generatedFiles = generateMockCode(name, frameworks, variants);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to fetch Figma node data.");
         setIsConverting(false);
         return;
       }
 
-      const generatedFiles = generateMockCode(name, frameworks, variants);
-      setFiles(generatedFiles);
-      setPreviewHtml(generatePreviewHtml(name, variants));
-      setComponentName(name);
+      const html = generatePreviewHtml(name, variants);
+
+      if (isWebContainerSupported && frameworks.includes("react")) {
+        const { componentCode, componentCss } = extractReactPreviewFiles(
+          generatedFiles.map((f) => ({ name: f.name, content: f.content })),
+          name
+        );
+        const projectFiles = getProjectFiles(name, componentCode, componentCss, true);
+        const tree = buildPreviewProject(name, componentCode, componentCss, true);
+        lastPreviewTreeRef.current = tree;
+        updateActiveProject({
+          files: projectFiles,
+          componentName: name,
+          previewHtml: html,
+          figmaUrl: url,
+          frameworks,
+          name,
+        });
+        const projId = activeProjectRef.current?.id ?? "";
+        appendHistory({
+          projectId: projId,
+          timestamp: new Date().toISOString(),
+          type: "conversion",
+          description: `Converted from Figma: ${name}`,
+          filesSnapshot: projectFiles,
+        });
+        setHistoryVersion((v) => v + 1);
+        bootAndMount(tree).catch(() => {
+          // Error already set in hook
+        });
+      } else {
+        updateActiveProject({
+          files: generatedFiles,
+          componentName: name,
+          previewHtml: html,
+          figmaUrl: url,
+          frameworks,
+          name,
+        });
+        appendHistory({
+          projectId: activeProjectRef.current?.id ?? "",
+          timestamp: new Date().toISOString(),
+          type: "conversion",
+          description: `Converted from Figma: ${name}`,
+          filesSnapshot: generatedFiles,
+        });
+        setHistoryVersion((v) => v + 1);
+      }
+
       setIsConverting(false);
+    },
+    [isWebContainerSupported, bootAndMount, exitEditMode, updateActiveProject]
+  );
+
+  const restartLivePreview = useCallback(() => {
+    const tree = lastPreviewTreeRef.current;
+    if (!tree) return;
+    bootAndMount(tree).catch(() => {
+      // Error already set in hook
+    });
+  }, [bootAndMount]);
+
+  // ── AI Edit handler ──
+  const handleAIEdit = useCallback(
+    async (prompt: string) => {
+      if (!selectedElement) return;
+
+      // AI Edit should target the file that actually contains the selected element.
+      // The preview template header often lives in src/App.tsx, not the component file.
+      const candidates = [primaryComponentFileName, "src/App.tsx"].filter(
+        (x): x is string => Boolean(x)
+      );
+      const files = filesRef.current;
+      const selectedText = (selectedElement.textContent || "").trim();
+      const veId = (selectedElement.veId || "").trim();
+
+      const pickBestFile = () => {
+        if (veId) {
+          const needle = `data-ve-id="${veId}"`;
+          for (const name of candidates) {
+            const f = files.find((ff) => ff.name === name);
+            if (!f) continue;
+            if (f.content.includes(needle)) return f;
+          }
+        }
+        for (const name of candidates) {
+          const f = files.find((ff) => ff.name === name);
+          if (!f) continue;
+          if (selectedText && f.content.includes(selectedText)) return f;
+        }
+        // fallback to the primary component file if present, else first candidate found
+        const primary = primaryComponentFileName
+          ? files.find((ff) => ff.name === primaryComponentFileName)
+          : undefined;
+        return primary ?? files.find((ff) => candidates.includes(ff.name)) ?? null;
+      };
+
+      const file = pickBestFile();
+      if (!file) throw new Error("No suitable file found for AI edit.");
+
+      // Preferred: veId-scoped AI edit (edit just the JSX node, then apply via AST)
+      if (veId) {
+        const jsxRes = extractJsxByVeId(file.content, veId);
+        if (jsxRes.ok) {
+          const updatedJsx = await editJsxNodeWithAI(prompt, {
+            veId,
+            selector: selectedElement.selector,
+            tagName: selectedElement.tagName,
+            innerHTML: selectedElement.innerHTML,
+            computedStyles: selectedElement.computedStyles,
+            currentJsx: jsxRes.jsx,
+          });
+          const replaced = replaceJsxByVeId(file.content, veId, updatedJsx);
+          if (replaced.ok) {
+            const patched = replaced.code;
+            const current = activeProjectRef.current;
+            if (current) {
+              updateActiveProject({
+                files: current.files.map((f) =>
+                  f.name === file.name ? { ...f, content: patched } : f
+                ),
+              });
+            }
+            if (writeFiles) {
+              writeFiles({ [file.name]: patched }).catch(() => {
+                /* handled in hook */
+              });
+            }
+            return;
+          }
+          // If replacement failed, fall through to full-file AI edit
+        }
+      }
+
+      // Fallback: full-file replacement AI edit
+      const newCode = await editElementWithAI(
+        prompt,
+        {
+          selector: selectedElement.selector,
+          tagName: selectedElement.tagName,
+          innerHTML: selectedElement.innerHTML,
+          computedStyles: selectedElement.computedStyles,
+        },
+        file.content
+      );
+      const patched = newCode
+        .replace(/^```(?:tsx?|jsx?|typescript|javascript)?\n?/, "")
+        .replace(/\n?```$/, "")
+        .trim();
+      const current = activeProjectRef.current;
+      if (current) {
+        updateActiveProject({
+          files: current.files.map((f) =>
+            f.name === file.name ? { ...f, content: patched } : f
+          ),
+        });
+      }
+      if (writeFiles) {
+        writeFiles({ [file.name]: patched }).catch(() => {
+          /* handled in hook */
+        });
+      }
+    },
+    [selectedElement, primaryComponentFileName, writeFiles, updateActiveProject]
+  );
+
+  const showHomeView = !activeProject || activeProject.files.length === 0;
+  const handleNavigateHome = useCallback(() => {
+    createProject();
+  }, [createProject]);
+
+  const handleChatApplyEdits = useCallback(
+    (updates: Record<string, string>) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      const nextFiles = current.files.map((f) =>
+        f.name in updates ? { ...f, content: updates[f.name] } : f
+      );
+      const newFileNames = Object.keys(updates).filter((name) => !current.files.some((f) => f.name === name));
+      newFileNames.forEach((name) => nextFiles.push({ name, content: updates[name], language: "typescript" }));
+      updateActiveProject({ files: nextFiles });
+      if (writeFiles) writeFiles(updates).catch(() => {});
+    },
+    [updateActiveProject, writeFiles]
+  );
+
+  const handleChatHistoryEntry = useCallback(
+    (type: "ai_edit", description: string, filesSnapshot: CodeFile[]) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      appendHistory({
+        projectId: current.id,
+        timestamp: new Date().toISOString(),
+        type,
+        description,
+        filesSnapshot,
+      });
+      setHistoryVersion((v) => v + 1);
     },
     []
   );
 
+  const handleHistoryRevert = useCallback(
+    (snapshot: CodeFile[]) => {
+      const current = activeProjectRef.current;
+      if (!current) return;
+      updateActiveProject({ files: snapshot });
+      if (writeFiles) {
+        const toWrite: Record<string, string> = {};
+        snapshot.forEach((f) => { toWrite[f.name] = f.content; });
+        writeFiles(toWrite).catch(() => {});
+      }
+    },
+    [updateActiveProject, writeFiles]
+  );
+
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <TopBar />
-      <div className="flex-1 flex overflow-hidden">
-        {sidebarOpen && (
-          <SettingsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="h-screen flex bg-background overflow-hidden">
+      <AppSidebar
+        projects={projects}
+        activeProject={activeProject}
+        onSelectProject={(id) => setActiveProject(id)}
+        onCreateProject={createProject}
+        onNavigateHome={handleNavigateHome}
+        onOpenSettings={() => setSidebarOpen(true)}
+      />
+      {sidebarOpen && (
+        <SettingsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      )}
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {showHomeView ? (
+          <HomeView
+            onConvert={runConversion}
+            steps={steps}
+            isConverting={isConverting}
+            error={error}
+            componentName={componentName}
+          />
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="flex-1">
+            <ResizablePanel defaultSize={70} minSize={40}>
+              <div className="h-full flex flex-col">
+                <Tabs
+                  value={activeView}
+                  onValueChange={(v) => setActiveView(v as "code" | "preview")}
+                  className="h-full flex flex-col"
+                >
+                  <div className="shrink-0 border-b border-border bg-card px-4 flex items-center justify-between">
+                    <TabsList className="h-11 justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                      <TabsTrigger
+                        value="code"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                      >
+                        <FileCode className="w-4 h-4 mr-2" />
+                        Code
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="preview"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        Preview
+                      </TabsTrigger>
+                    </TabsList>
+                    <ThemeToggle />
+                  </div>
+                  <div className="flex-1 flex overflow-hidden min-h-0">
+                    <TabsContent value="code" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden">
+                      <CodePanel
+                        files={files}
+                        onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
+                        onEditorChange={files.length > 0 && componentName && isWebContainerSupported ? onEditorChange : undefined}
+                      />
+                    </TabsContent>
+                    <TabsContent value="preview" className="flex-1 m-0 overflow-hidden data-[state=inactive]:hidden flex">
+                      <div className="flex-1 overflow-hidden min-w-0">
+                        <PreviewPanel
+                          previewUrl={previewUrl}
+                          html={previewHtml}
+                          status={webContainerStatus}
+                          error={webContainerError}
+                          isWebContainerSupported={isWebContainerSupported}
+                          onRestartLivePreview={restartLivePreview}
+                          isVisualEditMode={isVisualEditMode}
+                          onEnterEditMode={enterEditMode}
+                          onExitEditMode={exitEditMode}
+                          onElementSelect={handleElementSelect}
+                        />
+                      </div>
+                      {isVisualEditMode && selectedElement && (
+                        <VisualEditPanel
+                          element={selectedElement}
+                          componentCode={
+                            filesRef.current.find((f) => f.name === primaryComponentFileName)?.content ?? ""
+                          }
+                          onStyleChange={applyStyleEdit}
+                          onTextChange={applyTextEdit}
+                          onAIEdit={handleAIEdit}
+                          onClose={exitEditMode}
+                          editError={editError}
+                        />
+                      )}
+                    </TabsContent>
+                  </div>
+                </Tabs>
+              </div>
+            </ResizablePanel>
+            <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
+            <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+              <Tabs value={chatPanelView} onValueChange={(v) => setChatPanelView(v as "chat" | "history")} className="h-full flex flex-col">
+                <div className="shrink-0 border-b border-border bg-card px-2">
+                  <TabsList className="h-10 w-full justify-start rounded-none border-0 bg-transparent p-0 gap-0">
+                    <TabsTrigger value="chat" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none">
+                      <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+                      Chat
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground data-[state=active]:text-foreground shadow-none">
+                      <History className="w-3.5 h-3.5 mr-1.5" />
+                      History
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <div className="flex-1 overflow-hidden min-h-0">
+                  <TabsContent value="chat" className="h-full m-0 data-[state=inactive]:hidden">
+                    <ChatPanel
+                      files={files}
+                      componentName={componentName}
+                      projectId={activeProject?.id ?? ""}
+                      onApplyEdits={handleChatApplyEdits}
+                      onHistoryEntry={handleChatHistoryEntry}
+                    />
+                  </TabsContent>
+                  <TabsContent value="history" className="h-full m-0 data-[state=inactive]:hidden">
+                    <HistoryPanel key={`${activeProject?.id}-${historyVersion}`} projectId={activeProject?.id ?? ""} onRevert={handleHistoryRevert} />
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         )}
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-            <ImportPanel
-              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-              onConvert={runConversion}
-              steps={steps}
-              isConverting={isConverting}
-              error={error}
-              componentName={componentName}
-            />
-          </ResizablePanel>
-          <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
-          <ResizablePanel defaultSize={45} minSize={30}>
-            <CodePanel
-              files={files}
-              onPushToGitHub={files.length > 0 ? () => setGithubDialogOpen(true) : undefined}
-            />
-          </ResizablePanel>
-          <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors" />
-          <ResizablePanel defaultSize={30} minSize={20}>
-            <PreviewPanel html={previewHtml} />
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+      </main>
       <PushToGitHubDialog
         open={githubDialogOpen}
         onOpenChange={setGithubDialogOpen}

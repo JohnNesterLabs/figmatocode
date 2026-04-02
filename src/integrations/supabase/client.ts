@@ -8,13 +8,31 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase: SupabaseClient<Database> | null =
-  SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY
-    ? createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-        auth: {
-          storage: localStorage,
-          persistSession: true,
-          autoRefreshToken: true,
-        },
-      })
-    : null;
+let _supabase: SupabaseClient<Database> | null | undefined;
+
+/**
+ * Lazily create the Supabase client.
+ *
+ * Important: this app uses Supabase primarily for Edge Function calls (GitHub push),
+ * and does not require a persisted auth session on initial app load.
+ * Disabling auto-refresh + persistence prevents UI breakage when Supabase is unreachable.
+ */
+export function getSupabaseClient(): SupabaseClient<Database> | null {
+  if (_supabase !== undefined) return _supabase;
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    _supabase = null;
+    return _supabase;
+  }
+
+  _supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+  return _supabase;
+}
+
+// Backwards-compat export (but still lazy)
+export const supabase = getSupabaseClient();

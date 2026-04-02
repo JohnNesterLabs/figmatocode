@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { getSupabaseClient } from "@/integrations/supabase/client";
 import { CodeFile } from "./CodePanel";
 import { buildRepoPath, normalizeRepoDirectory } from "@/lib/repoPath";
 import { getGitHubToken, setGitHubToken } from "@/lib/tokenStorage";
@@ -97,6 +97,7 @@ const PushToGitHubDialog = ({
   }, [componentName]);
 
   const fetchRepos = useCallback(async (token: string) => {
+    const supabase = getSupabaseClient();
     if (!supabase) {
       setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
       return;
@@ -158,6 +159,7 @@ const PushToGitHubDialog = ({
         return;
       }
 
+      const supabase = getSupabaseClient();
       if (!supabase) {
         setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
         return;
@@ -198,6 +200,7 @@ const PushToGitHubDialog = ({
   }, [fetchRepos]);
 
   const handleConnectGitHub = async () => {
+    const supabase = getSupabaseClient();
     if (!supabase) {
       setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
       return;
@@ -231,6 +234,7 @@ const PushToGitHubDialog = ({
   };
 
   const handlePush = async () => {
+    const supabase = getSupabaseClient();
     if (!supabase) {
       setError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local");
       return;
